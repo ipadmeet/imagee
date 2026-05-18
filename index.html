@@ -185,7 +185,7 @@
             <div id="album-view">
                 <div class="album-header">
                     <h3 style="margin:0; color:#000; font-size: 20px;">🎨 コレクション</h3>
-                    <button class="paste-btn" onclick="pasteFromClipboard()">
+                    <button class="paste-btn" onclick="requestClipboardPermissionAndPaste()">
                         📋 画像をペースト
                     </button>
                 </div>
@@ -217,8 +217,6 @@
 
         let streamRef = null;
         let scanAnimationId = null;
-
-        // 【新仕様】前回ペーストに成功したクリップボードアイテムの参照を保持する変数
         let lastPastedItem = null;
 
         window.onload = () => { 
@@ -283,7 +281,6 @@
         }
 
         // --- 2. アルバム保存・管理ロジック ---
-        // uniqueIdを持たせることで、同じ画像でも「長押しされた特定の1枚」だけを確実に識別
         function addImageToGrid(base64Data, uniqueId = null) {
             const id = uniqueId || "img_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
 
@@ -295,27 +292,21 @@
             img.src = base64Data;
             div.appendChild(img);
 
-            // 長押しイベントの実装（0.8秒）
             let pressTimer;
             div.addEventListener('touchstart', (e) => {
-                pressTimer = window.setTimeout(() => {
-                    confirmDelete(id, div);
-                }, 800);
+                pressTimer = window.setTimeout(() => { confirmDelete(id, div); }, 800);
             }, { passive: true });
 
             div.addEventListener('touchend', () => clearTimeout(pressTimer));
             div.addEventListener('touchmove', () => clearTimeout(pressTimer));
             
-            // PC確認用
             div.addEventListener('mousedown', () => {
                 pressTimer = window.setTimeout(() => confirmDelete(id, div), 800);
             });
             div.addEventListener('mouseup', () => clearTimeout(pressTimer));
 
-            // グリッドの先頭に追加
             photoGrid.insertBefore(div, photoGrid.firstChild);
 
-            // 新規追加時のみLocalStorageに保存
             if (!uniqueId) {
                 let images = JSON.parse(localStorage.getItem('captured_images_v2') || '[]');
                 images.push({ id: id, data: base64Data });
@@ -325,38 +316,39 @@
 
         function loadSavedImages() {
             photoGrid.innerHTML = "";
-            // 古いデータ形式(captured_images)がある場合は移行処理
-            let oldImages = JSON.parse(localStorage.getItem('captured_images') || '[]');
             let images = JSON.parse(localStorage.getItem('captured_images_v2') || '[]');
-            
-            if (oldImages.length > 0) {
-                oldImages.forEach(data => {
-                    let id = "img_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
-                    images.push({ id: id, data: data });
-                });
-                localStorage.setItem('captured_images_v2', JSON.stringify(images));
-                localStorage.removeItem('captured_images');
-            }
-
             images.forEach(item => addImageToGrid(item.data, item.id));
         }
 
-        // 長押しした画像のみを正確に削除する
         function confirmDelete(targetId, element) {
             if (confirm("🗑️ この画像をアルバムから削除しますか？")) {
                 let images = JSON.parse(localStorage.getItem('captured_images_v2') || '[]');
-                
-                // 長押しされた画像(targetId)に一致するものだけを除外
                 images = images.filter(item => item.id !== targetId);
                 localStorage.setItem('captured_images_v2', JSON.stringify(images));
-                
-                // 画面上からもその要素だけをピンポイント削除
                 element.remove();
                 showToast("画像を削除しました");
             }
         }
 
-        // ペーストボタン処理
+        // 【改良】権限チェックを挟み、ポップアップの頻度を下げるように試みる処理
+        async function requestClipboardPermissionAndPaste() {
+            try {
+                // ブラウザがPermission APIに対応しているか確認
+                if (navigator.permissions && navigator.permissions.query) {
+                    const permission = await navigator.permissions.query({ name: 'clipboard-read', allowWithoutGesture: false });
+                    if (permission.state === 'denied') {
+                        showToast("📋 ブラウザの設定で貼り付け権限を許可してください。");
+                        return;
+                    }
+                }
+                // ペースト処理の実行へ
+                await pasteFromClipboard();
+            } catch (err) {
+                // Permission API非対応ブラウザ（主にiOS Safari）は直接実行を試みる
+                await pasteFromClipboard();
+            }
+        }
+
         async function pasteFromClipboard() {
             try {
                 const clipboardItems = await navigator.clipboard.read();
@@ -364,8 +356,6 @@
                     for (const type of item.types) {
                         if (type.startsWith('image/')) {
                             
-                            // 【新仕様】1回のコピーにつき1回のみペーストを許可
-                            // クリップボード内の現在の「画像データオブジェクト」が、前回保存したものと同一かチェック
                             if (lastPastedItem === item) {
                                 showToast("⚠️ このコピーは既に一度ペーストされています。");
                                 return;
@@ -376,7 +366,6 @@
                             reader.onloadend = () => {
                                 addImageToGrid(reader.result);
                                 showToast("📸 アルバムに保存しました！");
-                                // 成功したら、このクリップボードアイテムを記憶して連続ペーストを封印
                                 lastPastedItem = item; 
                             };
                             reader.readAsDataURL(blob);
@@ -386,7 +375,7 @@
                 }
                 showToast("📋 クリップボードに画像がありません。");
             } catch (err) {
-                showToast("貼り付け権限が拒否されました。");
+                showToast("貼り付け処理に失敗しました。もう一度お試しください。");
             }
         }
 
