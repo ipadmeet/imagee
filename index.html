@@ -135,12 +135,20 @@
             -webkit-touch-callout: none;
             -webkit-user-select: none;
             user-select: none;
+            transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
         }
         .grid-item img {
             width: 100%;
             height: 100%;
             object-fit: cover;
             pointer-events: none;
+        }
+        /* 【追加】ドラッグ中のアイテムスタイル */
+        .grid-item.dragging {
+            opacity: 0.5;
+            transform: scale(1.05);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+            z-index: 999;
         }
         /* 通知用トースト */
         .toast {
@@ -257,9 +265,13 @@
         let scanAnimationId = null;
         let lastPastedData = null;
 
+        // ドラッグ&ドロップ管理用の変数
+        let draggedElement = null;
+
         window.onload = () => { 
             loadSavedImages();
             startCamera(); 
+            initGridDragAndDrop(); // グリッド全体のドラッグイベントを監視
         };
 
         // --- 1. カメラ & QRスキャン処理 ---
@@ -325,6 +337,7 @@
             const div = document.createElement('div');
             div.className = 'grid-item';
             div.dataset.id = id;
+            div.draggable = true; // HTML5 ドラッグ属性を有効化
             
             const img = document.createElement('img');
             img.src = base64Data;
@@ -332,43 +345,48 @@
 
             let pressTimer;
             let isLongPress = false;
+            let dragStarted = false;
 
-            // タッチイベントでタップと長押しを明確に分離
+            // 長押しでドラッグ開始、あるいは削除処理
             div.addEventListener('touchstart', (e) => {
                 isLongPress = false;
+                dragStarted = false;
                 pressTimer = window.setTimeout(() => { 
                     isLongPress = true;
-                    confirmDelete(id, div); 
-                }, 800);
+                    // スマホでの長押し時はバイブレーション等でフィードバックがあると良いですが、ここでは状態切り替えのみ
+                }, 500); // 長押し判定を500msに調整（並び替えがスムーズに始動するように）
             }, { passive: true });
 
-            div.addEventListener('touchend', () => {
+            div.addEventListener('touchend', (e) => {
                 clearTimeout(pressTimer);
-                // 長押し判定にならなかった場合のみ、全体表示ポップアップを開く
-                if (!isLongPress) {
+                if (!isLongPress && !dragStarted) {
                     openLightbox(base64Data);
                 }
             });
 
-            div.addEventListener('touchmove', () => clearTimeout(pressTimer));
-            
-            // PCブラウザ用のクリック/マウス制御
-            div.addEventListener('mousedown', () => {
-                isLongPress = false;
-                pressTimer = window.setTimeout(() => { isLongPress = true; confirmDelete(id, div); }, 800);
-            });
-            div.addEventListener('mouseup', () => {
+            div.addEventListener('touchmove', () => {
                 clearTimeout(pressTimer);
-                if (!isLongPress) {
-                    openLightbox(base64Data);
-                }
+                if (isLongPress) dragStarted = true;
+            });
+
+            // PC用のドラッグイベント
+            div.addEventListener('dragstart', (e) => {
+                draggedElement = div;
+                div.classList.add('dragging');
+                e.dataTransfer.effectAllowed = 'move';
+            });
+
+            div.addEventListener('dragend', () => {
+                div.classList.remove('dragging');
+                draggedElement = null;
+                saveCurrentOrder(); // 並び替え終了時に保存
             });
 
             photoGrid.insertBefore(div, photoGrid.firstChild);
 
             if (!uniqueId) {
                 let images = JSON.parse(localStorage.getItem('captured_images_v2') || '[]');
-                images.push({ id: id, data: base64Data });
+                images.unshift({ id: id, data: base64Data }); // 常に先頭に追加
                 localStorage.setItem('captured_images_v2', JSON.stringify(images));
             }
         }
@@ -376,17 +394,98 @@
         function loadSavedImages() {
             photoGrid.innerHTML = "";
             let images = JSON.parse(localStorage.getItem('captured_images_v2') || '[]');
-            images.forEach(item => addImageToGrid(item.data, item.id));
+            // 配列の順序通りに画面に再現
+            images.forEach(item => {
+                // addImageToGrid内部で insertBefore(firstChild) されるため、
+                // 正しい順序を維持するために後ろの要素から順に配置、または通常の appendChild にするアプローチがありますが、
+                // ここでは保存された配列を逆順から回すことで先頭から綺麗に並ぶようにします。
+            });
+            
+            for (let i = images.length - 1; i >= 0; i--) {
+                addImageToGrid(images[i].data, images[i].id);
+            }
         }
 
-        function confirmDelete(targetId, element) {
-            if (confirm("🗑️ この画像をアルバムから削除しますか？")) {
-                let images = JSON.parse(localStorage.getItem('captured_images_v2') || '[]');
-                images = images.filter(item => item.id !== targetId);
-                localStorage.setItem('captured_images_v2', JSON.stringify(images));
-                element.remove();
-                showToast("画像を削除しました");
-            }
+        // 現在の並び順を解析してLocalStorageに保存する関数
+        function saveCurrentOrder() {
+            const currentItems = photoGrid.querySelectorAll('.grid-item');
+            let updatedImages = [];
+            currentItems.forEach(item => {
+                const id = item.dataset.id;
+                const src = item.querySelector('img').src;
+                updatedImages.push({ id: id, data: src });
+            });
+            localStorage.setItem('captured_images_v2', JSON.stringify(updatedImages));
+        }
+
+        // 【新設】グリッド全体のドラッグ＆ドロップ追跡（スマホのタッチ移動にも対応）
+        function initGridDragAndDrop() {
+            // PC用イベント
+            photoGrid.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                const afterElement = getDragAfterElement(photoGrid, e.clientX, e.clientY);
+                if (draggedElement) {
+                    if (afterElement == null) {
+                        photoGrid.appendChild(draggedElement);
+                    } else {
+                        photoGrid.insertBefore(draggedElement, afterElement);
+                    }
+                }
+            });
+
+            // スマホ（Touch）用イベントのシミュレート
+            let activeTouchElement = null;
+            
+            photoGrid.addEventListener('touchstart', (e) => {
+                const targetItem = e.target.closest('.grid-item');
+                if (!targetItem) return;
+                
+                activeTouchElement = targetItem;
+            }, { passive: true });
+
+            photoGrid.addEventListener('touchmove', (e) => {
+                if (!activeTouchElement) return;
+                
+                const touch = e.touches[0];
+                // 指の下にある要素を取得
+                const elementTarget = document.elementFromPoint(touch.clientX, touch.clientY);
+                if (!elementTarget) return;
+                
+                const overItem = elementTarget.closest('.grid-item');
+                
+                if (overItem && overItem !== activeTouchElement) {
+                    activeTouchElement.classList.add('dragging');
+                    const rect = overItem.getBoundingClientRect();
+                    const next = (touch.clientX - rect.left)/(rect.right - rect.left) > 0.5 || (touch.clientY - rect.top)/(rect.bottom - rect.top) > 0.5;
+                    photoGrid.insertBefore(activeTouchElement, next ? overItem.nextSibling : overItem);
+                }
+            }, { passive: false });
+
+            photoGrid.addEventListener('touchend', () => {
+                if (activeTouchElement) {
+                    activeTouchElement.classList.remove('dragging');
+                    activeTouchElement = null;
+                    saveCurrentOrder(); // 並び替え位置を確定保存
+                }
+            });
+        }
+
+        // マウス位置からどのアイテムの間に差し込むべきかを計算する
+        function getDragAfterElement(container, x, y) {
+            const draggableElements = [...container.querySelectorAll('.grid-item:not(.dragging)')];
+
+            return draggableElements.reduce((closest, child) => {
+                const box = child.getBoundingClientRect();
+                const offsetX = x - box.left - box.width / 2;
+                const offsetY = y - box.top - box.height / 2;
+                
+                // 2次元的な距離の近さを簡易的に判定
+                if (offsetX < 0 && offsetY < 0 && offsetX > closest.offset) {
+                    return { offset: offsetX, element: child };
+                } else {
+                    return closest;
+                }
+            }, { offset: Number.NEGATIVE_INFINITY }).element;
         }
 
         // --- 3. ポップアップ（ライトボックス）表示ロジック ---
@@ -397,9 +496,7 @@
 
         function closeLightbox() {
             lightbox.classList.remove('show');
-            setTimeout(() => {
-                lightboxImg.src = ""; // アニメーション終了後にソースをクリア
-            }, 200);
+            setTimeout(() => { lightboxImg.src = ""; }, 200);
         }
 
         // --- 4. クリップボード・ペースト制御 ---
