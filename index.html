@@ -2,8 +2,8 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>クイズ＆アルバムアプリ (Form連携動的画像版)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>クイズ＆アルバムアプリ</title>
     <!-- Tailwind CSS (スタイリング用) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Lucide Icons (アイコン用) -->
@@ -13,11 +13,12 @@
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
     
     <style>
-        /* モバイルでのダブルタップズームを無効化して、ダブルタップ操作を快適にする */
+        /* モバイルでのダブルタップズームを完全に無効化してジェスチャー競合を防ぐ */
         .double-tap-target {
-            touch-action: manipulation;
+            touch-action: none; /* 標準のダブルタップズームを防止 */
             user-select: none;
             -webkit-user-select: none;
+            -webkit-touch-callout: none;
         }
         /* タブ切り替えのトランジション用 */
         .tab-content {
@@ -40,8 +41,8 @@
             <!-- 未回答（初期状態）の表示エリア -->
             <div id="unsolved-area" class="w-full flex flex-col items-center space-y-5">
                 <p class="text-sm text-gray-600 text-center px-4 leading-relaxed">
-                    アプリのカメラで問題のQRコードを読み取ってGoogle Formのクイズに挑戦してください。<br>
-                    正解すると、完了画面にこのアプリへ戻る特別なリンクが表示されます。
+                    問題用紙などのQRコードをアプリのカメラでスキャンしてクイズに挑戦してください。<br>
+                    正解すると、完了画面にこのアプリへ画像を受け取って戻るリンクが表示されます。
                 </p>
 
                 <!-- 📸 カメラQRコードスキャナーセクション -->
@@ -59,45 +60,35 @@
                             </button>
                         </div>
 
-                        <button id="start-scan-btn" onclick="startScanner()" class="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl shadow-md transition duration-200 flex items-center justify-center gap-2">
-                            <i data-lucide="qr-code" class="w-4 h-4"></i>
+                        <button id="start-scan-btn" onclick="startScanner()" class="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-xl shadow-md transition duration-200 flex items-center justify-center gap-2">
+                            <i data-lucide="qr-code" class="w-5 h-5"></i>
                             カメラを起動してスキャンする
                         </button>
                     </div>
-                </div>
-
-                <!-- 直接フォームを開くボタン（フォールバック用） -->
-                <div class="w-full px-4">
-                    <a id="form-link-btn" href="#" target="_blank" class="block w-full py-3.5 px-4 text-center bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl shadow-md transition duration-200 flex items-center justify-center gap-2">
-                        <i data-lucide="external-link" class="w-5 h-5"></i>
-                        直接Google Formを開いてクイズを解く
-                    </a>
                 </div>
 
                 <!-- 管理者用/設定用ヘルプアコーディオン -->
                 <div class="w-full px-4 mt-2">
                     <details class="bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs text-gray-600">
                         <summary class="font-bold cursor-pointer select-none flex items-center gap-1 text-gray-700">
-                            <i data-lucide="settings" class="w-3.5 h-3.5"></i> 動的画像の配布手順（管理者向け）
+                            <i data-lucide="settings" class="w-3.5 h-3.5"></i> クイズ画像配布の確認メッセージ設定方法
                         </summary>
                         <div class="mt-2 space-y-2 leading-relaxed">
-                            <p>Google Form完了時、クイズごとに異なる画像URLを指定してアプリに戻すことができます。</p>
-                            <p><strong>1. 画像URLの用意:</strong> Web上またはリポジトリ内にある、正答者に渡したい画像のURLをコピーします。</p>
-                            <p><strong>2. パラメータの付与:</strong> アプリURLの末尾に以下のようにパラメータを追加します。<br>
+                            <p>Google Formクイズの送信完了メッセージに、正解者に渡したい画像URL付きリンクを設定します。</p>
+                            <p><strong>パラメータの付与形式:</strong><br>
                                <span class="text-blue-600 font-semibold break-all">?status=correct&image=[画像URL]</span>
                             </p>
                             <p class="bg-gray-200 p-2 rounded text-[10px] font-mono break-all" id="setup-correct-url">
                                 例: https://yourname.github.io/repo/?status=correct&image=https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=400
                             </p>
-                            <p><strong>3. Formの完了画面に貼る:</strong> Google Formの確認メッセージに上記URLを設定するだけで、ユーザーが戻った際にその指定画像が表示され、アルバムに追加可能になります。</p>
                         </div>
                     </details>
                 </div>
                 
                 <!-- テスト・開発用デモシミュレーター -->
                 <div class="w-full px-4 pt-2 border-t border-gray-100">
-                    <button onclick="simulateCorrect()" class="w-full py-2 px-3 text-xs text-gray-500 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition text-center flex items-center justify-center gap-1">
-                        <i data-lucide="play-circle" class="w-4 h-4"></i> デモ：特定の画像をFormから受け取って戻ってきた状態を試す
+                    <button onclick="simulateCorrect()" class="w-full py-2.5 px-3 text-xs text-gray-500 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition text-center flex items-center justify-center gap-1 font-medium">
+                        <i data-lucide="play-circle" class="w-4 h-4"></i> デモ：特定の画像をFormから受け取って戻ってきた状態をテスト
                     </button>
                 </div>
             </div>
@@ -112,24 +103,36 @@
                     <p class="text-xs text-gray-500">下の画像をダブルタップしてアルバムに追加しましょう！</p>
                 </div>
 
-                <!-- 動的に読み込まれる画像要素 -->
-                <div class="relative group">
-                    <img id="quiz-image" src="" onerror="this.src='https://images.unsplash.com/photo-1506784983877-45594efa4cbe?auto=format&fit=crop&w=600&q=80'" alt="正解画像" class="double-tap-target max-h-[240px] w-auto object-contain rounded-xl shadow-lg border border-gray-200 cursor-pointer active:scale-95 transition-transform duration-100">
+                <!-- 動的に読み込まれる画像要素（タッチ無効化・スケール付き） -->
+                <div class="relative group w-full flex justify-center">
+                    <img id="quiz-image" src="" onerror="this.src='https://images.unsplash.com/photo-1506784983877-45594efa4cbe?auto=format&fit=crop&w=600&q=80'" alt="正解画像" class="double-tap-target max-h-[260px] w-auto object-contain rounded-2xl shadow-xl border-2 border-green-200 cursor-pointer transition-transform duration-150 transform hover:scale-[1.02]">
                 </div>
                 
-                <span class="text-xs text-gray-500 flex items-center gap-1 animate-pulse">
-                    <i data-lucide="pointer" class="w-3.5 h-3.5"></i> 画像をダブルタップして保存
+                <span class="text-xs text-gray-400 flex items-center gap-1 animate-pulse">
+                    <i data-lucide="pointer" class="w-3.5 h-3.5"></i> 画像をダブルタップ、または下のボタンを押して保存
                 </span>
 
-                <button onclick="resetQuizState()" class="mt-4 text-xs text-blue-600 hover:underline flex items-center gap-1">
-                    <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> もう一度スキャンして挑戦する
+                <!-- 確実に保存するための補助ボタン（ダブルタップが苦手な環境向け） -->
+                <button onclick="addToAlbum()" class="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md transition duration-200 flex items-center justify-center gap-2 text-sm">
+                    <i data-lucide="download" class="w-4 h-4"></i>
+                    アルバムに画像を保存する
+                </button>
+
+                <button onclick="resetQuizState()" class="mt-2 text-xs text-blue-600 hover:underline flex items-center gap-1">
+                    <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> もう一度スキャン画面に戻る
                 </button>
             </div>
         </section>
 
         <!-- MARK: - アルバム画面 (タブ1) -->
         <section id="album-tab" class="tab-content flex-col w-full pt-4">
-            <h2 class="text-2xl font-bold text-gray-800 px-4 mb-4">アルバム</h2>
+            <h2 class="text-2xl font-bold text-gray-800 px-4 mb-4 flex items-center justify-between">
+                <span>アルバム</span>
+                <!-- 全件削除ボタン -->
+                <button id="clear-album-btn" onclick="clearAllAlbum()" class="hidden text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-0.5">
+                    <i data-lucide="trash-2" class="w-3 h-3"></i> 全てクリア
+                </button>
+            </h2>
             
             <!-- 空状態の表示 -->
             <div id="album-empty" class="flex flex-col items-center justify-center space-y-4 py-16 px-6 text-center">
@@ -138,7 +141,7 @@
                 </div>
                 <h3 class="text-lg font-bold text-gray-700">アルバムは空です</h3>
                 <p class="text-sm text-gray-500 leading-relaxed">
-                    Google Formでクイズに正解し、表示された画像をダブルタップすると、ここに追加されます。
+                    Google Formクイズの正解画面からアプリに戻り、画像をダブルタップすると、ここに追加されます。
                 </p>
             </div>
 
@@ -153,7 +156,7 @@
     <!-- 画面下部に追加通知トーストを表示 -->
     <div id="toast" class="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-black/85 text-white text-sm py-2.5 px-5 rounded-full shadow-lg pointer-events-none opacity-0 transition-all duration-300 transform translate-y-2 flex items-center gap-2">
         <i data-lucide="check-circle" class="w-4 h-4 text-green-400"></i>
-        <span>アルバムタブに画像を追加しました！</span>
+        <span>アルバムに画像を追加しました！</span>
     </div>
 
     <!-- MARK: - フッターナビゲーション (タブバー) -->
@@ -173,12 +176,8 @@
         // Lucideアイコンの初期化
         lucide.createIcons();
 
-        // 🔗 【要修正】あなたのGoogle Formの回答リンクをここに設定してください。
-        const googleFormUrl = "https://docs.google.com/forms/d/e/1FAIpQLSfD_P7bYgM6T6A4_xS_hP-v6g7uD-tE_o8R9JmF8lX7rK_9ag/viewform";
-
         // 状態管理
         let savedItems = []; // アルバムに保存された画像URLの配列
-        let lastTap = 0; // ダブルタップ検出用
 
         // DOMの参照
         const quizTab = document.getElementById('quiz-tab');
@@ -190,8 +189,8 @@
         const quizImage = document.getElementById('quiz-image');
         const albumEmpty = document.getElementById('album-empty');
         const albumGrid = document.getElementById('album-grid');
+        const clearAlbumBtn = document.getElementById('clear-album-btn');
         const toast = document.getElementById('toast');
-        const formLinkBtn = document.getElementById('form-link-btn');
         const setupCorrectUrl = document.getElementById('setup-correct-url');
 
         // 📸 QRスキャナー用の状態変数
@@ -209,9 +208,6 @@
             // 現在のページのURLをもとに、設定すべきリダイレクトURLの例を生成
             const basePageUrl = window.location.href.split('?')[0];
             setupCorrectUrl.textContent = basePageUrl + "?status=correct&image=https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=400";
-
-            // Google Form への遷移ボタンの設定
-            formLinkBtn.href = googleFormUrl;
 
             // URLパラメータをチェック
             checkUrlParameters();
@@ -286,7 +282,7 @@
             const config = { 
                 fps: 10, 
                 qrbox: (width, height) => {
-                    const size = Math.min(width, height) * 0.7;
+                    const size = Math.min(width, height) * 0.75;
                     return { width: size, height: size };
                 }
             };
@@ -297,6 +293,7 @@
                 (decodedText) => {
                     stopScanner();
                     
+                    // URLがスキャンされた場合は新しいウィンドウで開く
                     if (decodedText.startsWith("http://") || decodedText.startsWith("https://")) {
                         window.open(decodedText, '_blank');
                     } else {
@@ -350,21 +347,45 @@
             }
         }
 
-        // ダブルタップのイベント検知
-        quizImage.addEventListener('click', function(e) {
+        // 🚀 タッチデバイス対応：確実に動作するダブルタップジェスチャー判定
+        let lastTapTime = 0;
+        
+        // スマホなどのタッチ端末用 (ブラウザズームを完全に抑制して検知)
+        quizImage.addEventListener('touchstart', function(e) {
             const currentTime = new Date().getTime();
-            const tapLength = currentTime - lastTap;
+            const tapLength = currentTime - lastTapTime;
             
             if (tapLength < 300 && tapLength > 0) {
+                // ダブルタップ検出に成功
+                triggerTapAnimation();
                 addToAlbum();
-                e.preventDefault();
+                e.preventDefault(); // Safari等のブラウザ標準のズーム動作を完全に防ぐ
             }
-            lastTap = currentTime;
+            lastTapTime = currentTime;
+        }, { passive: false });
+
+        // PC（マウス操作）用のダブルクリック判定
+        quizImage.addEventListener('dblclick', function(e) {
+            triggerTapAnimation();
+            addToAlbum();
+            e.preventDefault();
         });
+
+        // 保存時に画像が軽く弾むようなアニメーションフィードバックを追加
+        function triggerTapAnimation() {
+            quizImage.classList.add('scale-90');
+            setTimeout(() => {
+                quizImage.classList.remove('scale-90');
+            }, 120);
+        }
 
         // アルバムに画像を追加する処理
         function addToAlbum() {
             const currentSrc = quizImage.src;
+            
+            if (!currentSrc || currentSrc === window.location.href) {
+                return;
+            }
             
             // アルバムに画像URLを追加
             savedItems.push(currentSrc);
@@ -393,10 +414,12 @@
                 albumEmpty.style.display = 'flex';
                 albumGrid.classList.add('hidden');
                 albumGrid.classList.remove('grid');
+                clearAlbumBtn.classList.add('hidden');
             } else {
                 albumEmpty.style.display = 'none';
                 albumGrid.classList.remove('hidden');
                 albumGrid.classList.add('grid');
+                clearAlbumBtn.classList.remove('hidden');
                 
                 albumGrid.innerHTML = '';
                 
@@ -412,7 +435,7 @@
                     // 削除用ミニボタン
                     const deleteBtn = document.createElement('button');
                     deleteBtn.innerHTML = '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i>';
-                    deleteBtn.className = "absolute top-1 right-1 bg-red-500/80 text-white p-1 rounded-full opacity-70 hover:opacity-100 transition duration-150 shadow";
+                    deleteBtn.className = "absolute top-1 right-1 bg-red-500/80 text-white p-1.5 rounded-full opacity-80 hover:opacity-100 transition duration-150 shadow";
                     deleteBtn.onclick = function(e) {
                         e.stopPropagation(); 
                         deleteItem(index);
@@ -432,6 +455,15 @@
             savedItems.splice(index, 1);
             localStorage.setItem('my_quiz_album', JSON.stringify(savedItems));
             renderAlbum();
+        }
+
+        // アルバムの全件クリア
+        function clearAllAlbum() {
+            if (confirm("アルバムのすべての画像を削除してもよろしいですか？")) {
+                savedItems = [];
+                localStorage.removeItem('my_quiz_album');
+                renderAlbum();
+            }
         }
     </script>
 </body>
