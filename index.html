@@ -89,12 +89,53 @@
             height: 100%;
             border: none;
         }
-        /* アルバム（今回は不使用ですが構造維持のため残しています） */
+        /* アルバム */
         #album-view {
             overflow-y: auto;
-            padding: 20px;
-            text-align: center;
-            color: #8e8e93;
+            height: 100%;
+            padding: 16px;
+            box-sizing: border-box;
+        }
+        .album-actions {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .action-btn {
+            flex: 1;
+            background-color: var(--ios-blue);
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+        .action-btn:active {
+            opacity: 0.8;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+        .grid-item {
+            aspect-ratio: 1 / 1;
+            background: #e5e5ea;
+            border-radius: 6px;
+            overflow: hidden;
+            position: relative;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .grid-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
         }
         /* トースト */
         .toast {
@@ -111,6 +152,8 @@
             display: none;
             text-align: center;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            width: max-content;
+            max-width: 80%;
         }
         /* iOS風カスタムアラートダイアログ */
         .alert-overlay {
@@ -176,6 +219,9 @@
         .alert-btn:active {
             background: rgba(0,0,0,0.05);
         }
+        #file-input {
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -187,11 +233,10 @@
     <div id="screenshot-alert" class="alert-overlay">
         <div class="alert-box">
             <div class="alert-content">
-                <div class="alert-title">🎉 正解おめでとう！</div>
+                <div class="alert-title">🎉 正解画像を保存しよう！</div>
                 <div class="alert-message">
-                    表示されている正解画像を保存しよう！<br><br>
-                    <strong>【保存方法】</strong><br>
-                    スマホのスクショ機能（電源ボタン＋音量ボタンなど）を使って、この画面を撮影してね！
+                    スマホの機能で<strong>スクショを撮影（または画像をコピー）</strong>してください。<br><br>
+                    その後、右下の「アルバム」タブを開いて追加ボタンを押すと、このアプリのアルバムに保存できます！
                 </div>
             </div>
             <div class="alert-buttons">
@@ -213,15 +258,24 @@
             </div>
         </div>
 
-        <!-- タブ2: アルバム（案内タブに変更） -->
+        <!-- タブ2: アルバムタブ -->
         <div id="tab-album" class="tab-content">
             <div id="album-view">
-                <span style="font-size: 48px; display: block; margin-bottom: 20px;">📸</span>
-                <h3>スクショ保存ガイド</h3>
-                <p style="font-size: 14px; line-height: 1.6; color: #555;">
-                    クイズ回答後に正解画像が表示されたら、画面を<strong>長押し（1秒間ホールド）</strong>してください。<br>
-                    端末のスクショ撮影の案内ポップアップが表示されます。画像はスマホの写真アプリに保存してください。
-                </p>
+                <h3 style="margin-top:0; color:#000; font-size: 20px;">🎨 コレクション</h3>
+                
+                <!-- 画像追加アクション -->
+                <div class="album-actions">
+                    <button class="action-btn" onclick="pasteFromClipboard()">
+                        📋 クリップボードから貼付
+                    </button>
+                    <button class="action-btn" onclick="triggerFileInput()">
+                        🖼️ 写真から追加
+                    </button>
+                </div>
+
+                <!-- 写真が保存されるグリッド -->
+                <div class="grid" id="photo-grid"></div>
+                <input type="file" id="file-input" accept="image/*" onchange="handleFileSelect(event)">
             </div>
         </div>
 
@@ -234,8 +288,8 @@
             Scanner
         </button>
         <button class="tab-item" onclick="switchTab('album')">
-            <span class="tab-icon">📖</span>
-            Guide
+            <span class="tab-icon">🖼️</span>
+            Album
         </button>
     </nav>
 
@@ -246,10 +300,18 @@
         const webFrame = document.getElementById('web-frame');
         const toast = document.getElementById('toast');
         const alertOverlay = document.getElementById('screenshot-alert');
+        const photoGrid = document.getElementById('photo-grid');
+        const fileInput = document.getElementById('file-input');
 
         let streamRef = null;
         let scanAnimationId = null;
         let pressTimer;
+
+        // 読み込み時にLocalStorageから保存済み画像を復元
+        window.onload = () => { 
+            loadSavedImages();
+            startCamera(); 
+        };
 
         // --- 1. カメラ & QRスキャン処理 ---
         async function startCamera() {
@@ -267,7 +329,7 @@
                     setTimeout(() => { scanAnimationId = requestAnimationFrame(tick); }, 300);
                 });
             } catch (err) {
-                showToast("カメラの起動に失敗しました。HTTPS環境を確認してください。");
+                showToast("カメラの起動に失敗しました。");
             }
         }
 
@@ -301,35 +363,83 @@
             scanAnimationId = requestAnimationFrame(tick);
         }
 
-        // --- 2. WEBビュー処理 ---
         function openWebView(url) {
             scannerView.style.display = 'none';
             webViewContainer.style.display = 'block';
             webFrame.src = url;
         }
 
-        // --- 3. 操作を邪魔しない長押しアラート処理 ---
-        function openAlert() {
-            alertOverlay.classList.add('show');
-        }
+        // --- 2. 長押しアラート処理 ---
+        function openAlert() { alertOverlay.classList.add('show'); }
+        function closeAlert() { alertOverlay.classList.remove('show'); }
 
-        function closeAlert() {
-            alertOverlay.classList.remove('show');
-        }
-
-        // Googleフォームのタップ操作を一切邪魔せず、1秒押しっぱなしの時だけポップアップを出す
         webViewContainer.addEventListener('touchstart', (e) => {
             pressTimer = window.setTimeout(() => { openAlert(); }, 1000); 
         }, { passive: true });
-
         webViewContainer.addEventListener('touchend', () => clearTimeout(pressTimer), { passive: true });
         webViewContainer.addEventListener('touchmove', () => clearTimeout(pressTimer), { passive: true });
+
+        // --- 3. アルバム保存・管理ロジック ---
         
-        // PCデバッグ用
-        webViewContainer.addEventListener('mousedown', () => {
-            pressTimer = window.setTimeout(() => { openAlert(); }, 1000);
-        });
-        webViewContainer.addEventListener('mouseup', () => clearTimeout(pressTimer));
+        // アルバムに画像要素を追加する共通関数
+        function addImageToGrid(base64Data, saveToStorage = true) {
+            const div = document.createElement('div');
+            div.className = 'grid-item';
+            const img = document.createElement('img');
+            img.src = base64Data;
+            div.appendChild(img);
+            photoGrid.insertBefore(div, photoGrid.firstChild);
+
+            if (saveToStorage) {
+                let images = JSON.parse(localStorage.getItem('captured_images') || '[]');
+                images.push(base64Data);
+                localStorage.setItem('captured_images', JSON.stringify(images));
+            }
+        }
+
+        // LocalStorageから画像を読み込んで表示
+        function loadSavedImages() {
+            let images = JSON.parse(localStorage.getItem('captured_images') || '[]');
+            images.forEach(data => addImageToGrid(data, false));
+        }
+
+        // 方法A: クリップボード（スクショ直後のコピーなど）から貼り付け
+        async function pasteFromClipboard() {
+            try {
+                const clipboardItems = await navigator.clipboard.read();
+                for (const item of clipboardItems) {
+                    for (const type of item.types) {
+                        if (type.startsWith('image/')) {
+                            const blob = await item.getType(type);
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                                addImageToGrid(reader.result);
+                                showToast("📸 クリップボードから画像をアルバムに保存しました！");
+                            };
+                            reader.readAsDataURL(blob);
+                            return;
+                        }
+                    }
+                }
+                showToast("📋 クリップボードに画像が見つかりません。先にスクショを撮影するか画像をコピーしてください。");
+            } catch (err) {
+                showToast("写真から追加ボタンを使用するか、アクセス許可を確認してください。");
+            }
+        }
+
+        // 方法B: 写真ライブラリ（カメラロール）から追加
+        function triggerFileInput() { fileInput.click(); }
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file && file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    addImageToGrid(reader.result);
+                    showToast("🖼️ 写真をアルバムに保存しました！");
+                };
+                reader.readAsDataURL(file);
+            }
+        }
 
         // --- 4. タブ切り替え処理 ---
         function switchTab(tabName) {
@@ -353,10 +463,8 @@
         function showToast(message) {
             toast.innerText = message;
             toast.style.display = 'block';
-            setTimeout(() => { toast.style.display = 'none'; }, 2500);
+            setTimeout(() => { toast.style.display = 'none'; }, 3000);
         }
-
-        window.onload = () => { startCamera(); };
     </script>
 </body>
 </html>
