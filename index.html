@@ -11,7 +11,6 @@
             --ios-blue: #007aff;
             --ios-bg: #f2f2f7;
             --nav-bg: #ffffff;
-            --ios-red: #ff3b30;
         }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -133,7 +132,6 @@
             position: relative;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             cursor: pointer;
-            /* 削除時の長押しで標準メニューを出さないおまじない */
             -webkit-touch-callout: none;
             -webkit-user-select: none;
             user-select: none;
@@ -142,7 +140,7 @@
             width: 100%;
             height: 100%;
             object-fit: cover;
-            pointer-events: none; /* 画像自体の長押しメニューを禁止 */
+            pointer-events: none;
         }
         /* 通知用トースト */
         .toast {
@@ -220,6 +218,9 @@
         let streamRef = null;
         let scanAnimationId = null;
 
+        // 【新仕様】前回ペーストに成功したクリップボードアイテムの参照を保持する変数
+        let lastPastedItem = null;
+
         window.onload = () => { 
             loadSavedImages();
             startCamera(); 
@@ -282,68 +283,76 @@
         }
 
         // --- 2. アルバム保存・管理ロジック ---
-        function addImageToGrid(base64Data, saveToStorage = true) {
-            // 重複チェック: すでに保存されている最新の画像と同じならスキップ
-            let images = JSON.parse(localStorage.getItem('captured_images') || '[]');
-            if (saveToStorage && images.length > 0 && images[images.length - 1] === base64Data) {
-                showToast("⚠️ この画像は既にペーストされています");
-                return;
-            }
+        // uniqueIdを持たせることで、同じ画像でも「長押しされた特定の1枚」だけを確実に識別
+        function addImageToGrid(base64Data, uniqueId = null) {
+            const id = uniqueId || "img_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
 
             const div = document.createElement('div');
             div.className = 'grid-item';
-            div.dataset.id = saveToStorage ? images.length : document.querySelectorAll('.grid-item').length; // 簡易ID割り当て
+            div.dataset.id = id;
             
             const img = document.createElement('img');
             img.src = base64Data;
             div.appendChild(img);
 
-            // 長押しイベントの実装
+            // 長押しイベントの実装（0.8秒）
             let pressTimer;
             div.addEventListener('touchstart', (e) => {
                 pressTimer = window.setTimeout(() => {
-                    confirmDelete(base64Data, div);
-                }, 800); // 0.8秒長押しで削除確認
+                    confirmDelete(id, div);
+                }, 800);
             }, { passive: true });
 
             div.addEventListener('touchend', () => clearTimeout(pressTimer));
             div.addEventListener('touchmove', () => clearTimeout(pressTimer));
             
-            // PCブラウザ確認用のマウスイベント
+            // PC確認用
             div.addEventListener('mousedown', () => {
-                pressTimer = window.setTimeout(() => confirmDelete(base64Data, div), 800);
+                pressTimer = window.setTimeout(() => confirmDelete(id, div), 800);
             });
             div.addEventListener('mouseup', () => clearTimeout(pressTimer));
 
             // グリッドの先頭に追加
             photoGrid.insertBefore(div, photoGrid.firstChild);
 
-            if (saveToStorage) {
-                images.push(base64Data);
-                localStorage.setItem('captured_images', JSON.stringify(images));
+            // 新規追加時のみLocalStorageに保存
+            if (!uniqueId) {
+                let images = JSON.parse(localStorage.getItem('captured_images_v2') || '[]');
+                images.push({ id: id, data: base64Data });
+                localStorage.setItem('captured_images_v2', JSON.stringify(images));
             }
         }
 
         function loadSavedImages() {
-            photoGrid.innerHTML = ""; // 一旦クリア
-            let images = JSON.parse(localStorage.getItem('captured_images') || '[]');
-            images.forEach(data => addImageToGrid(data, false));
+            photoGrid.innerHTML = "";
+            // 古いデータ形式(captured_images)がある場合は移行処理
+            let oldImages = JSON.parse(localStorage.getItem('captured_images') || '[]');
+            let images = JSON.parse(localStorage.getItem('captured_images_v2') || '[]');
+            
+            if (oldImages.length > 0) {
+                oldImages.forEach(data => {
+                    let id = "img_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+                    images.push({ id: id, data: data });
+                });
+                localStorage.setItem('captured_images_v2', JSON.stringify(images));
+                localStorage.removeItem('captured_images');
+            }
+
+            images.forEach(item => addImageToGrid(item.data, item.id));
         }
 
-        // 画像削除の確認ダイアログ
-        function confirmDelete(base64Data, element) {
+        // 長押しした画像のみを正確に削除する
+        function confirmDelete(targetId, element) {
             if (confirm("🗑️ この画像をアルバムから削除しますか？")) {
-                let images = JSON.parse(localStorage.getItem('captured_images') || '[]');
-                // 該当の画像を配列から削除
-                images = images.filter(img => img !== base64Data);
-                localStorage.setItem('captured_images', JSON.stringify(images));
+                let images = JSON.parse(localStorage.getItem('captured_images_v2') || '[]');
                 
-                // 画面（DOM）から削除
+                // 長押しされた画像(targetId)に一致するものだけを除外
+                images = images.filter(item => item.id !== targetId);
+                localStorage.setItem('captured_images_v2', JSON.stringify(images));
+                
+                // 画面上からもその要素だけをピンポイント削除
                 element.remove();
                 showToast("画像を削除しました");
-                
-                // IDの整合性を保つため再描画
-                loadSavedImages();
             }
         }
 
@@ -354,10 +363,21 @@
                 for (const item of clipboardItems) {
                     for (const type of item.types) {
                         if (type.startsWith('image/')) {
+                            
+                            // 【新仕様】1回のコピーにつき1回のみペーストを許可
+                            // クリップボード内の現在の「画像データオブジェクト」が、前回保存したものと同一かチェック
+                            if (lastPastedItem === item) {
+                                showToast("⚠️ このコピーは既に一度ペーストされています。");
+                                return;
+                            }
+
                             const blob = await item.getType(type);
                             const reader = new FileReader();
                             reader.onloadend = () => {
                                 addImageToGrid(reader.result);
+                                showToast("📸 アルバムに保存しました！");
+                                // 成功したら、このクリップボードアイテムを記憶して連続ペーストを封印
+                                lastPastedItem = item; 
                             };
                             reader.readAsDataURL(blob);
                             return;
@@ -366,7 +386,7 @@
                 }
                 showToast("📋 クリップボードに画像がありません。");
             } catch (err) {
-                showToast("貼り付け権限が拒否されました。設定を確認してください。");
+                showToast("貼り付け権限が拒否されました。");
             }
         }
 
