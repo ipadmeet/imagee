@@ -3,11 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>QR Form WebApp</title>
-    <!-- QRコード解析ライブラリを読み込み -->
+    <title>QR Form Capture WebApp</title>
+    <!-- QRコード解析ライブラリ -->
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
-    <!-- 画面キャプチャ用ライブラリを読み込み -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
         :root {
             --ios-blue: #007aff;
@@ -26,7 +24,6 @@
             user-select: none;
             -webkit-user-select: none;
         }
-        /* コンテンツエリア */
         .content-area {
             flex: 1;
             position: relative;
@@ -43,7 +40,7 @@
         .tab-content.active {
             display: block;
         }
-        /* タブバー (iOS風) */
+        /* タブバー */
         .tab-bar {
             height: 60px;
             background-color: var(--nav-bg);
@@ -71,7 +68,7 @@
             display: block;
             margin-bottom: 2px;
         }
-        /* スキャナー画面 */
+        /* スキャナー */
         #scanner-view {
             background: #000;
         }
@@ -80,7 +77,7 @@
             height: 100%;
             object-fit: cover;
         }
-        /* WEBビュー画面 */
+        /* WebViewコンテナ */
         #web-view-container {
             width: 100%;
             height: 100%;
@@ -92,7 +89,16 @@
             height: 100%;
             border: none;
         }
-        /* アルバム画面 */
+        /* 透明な長押し検知レイヤー */
+        #longpress-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+        }
+        /* アルバム */
         #album-view {
             overflow-y: auto;
             padding: 10px;
@@ -114,57 +120,53 @@
             height: 100%;
             object-fit: cover;
         }
-        /* トースト通知 */
+        /* トースト */
         .toast {
             position: absolute;
             top: 20px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0,0,0,0.8);
+            background: rgba(0,0,0,0.85);
             color: #fff;
-            padding: 10px 20px;
-            border-radius: 20px;
+            padding: 12px 24px;
+            border-radius: 24px;
             font-size: 14px;
             z-index: 9999;
             display: none;
+            text-align: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
         }
     </style>
 </head>
 <body>
 
-    <!-- 通知用トースト -->
     <div id="toast" class="toast"></div>
 
-    <!-- メインコンテンツ -->
     <div class="content-area">
         
-        <!-- タブ1: スキャナー / WEB表示（SwiftのContentView側に対応） -->
+        <!-- タブ1: スキャナー / WEB表示 -->
         <div id="tab-scanner" class="tab-content active">
-            <!-- カメラプレビュー -->
             <div id="scanner-view" style="width:100%; height:100%;">
                 <video id="video-preview" autoplay playsinline muted></video>
             </div>
-            <!-- スキャン後にフォームを開く擬似WebView -->
             <div id="web-view-container" style="display: none;">
-                <!-- 長押し判定のためのオーバーレイ層 -->
-                <div id="longpress-layer" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:10; cursor:pointer;"></div>
+                <!-- 長押しイベントを受け取るオーバーレイ層（クリックは下に透過させる） -->
+                <div id="longpress-layer"></div>
                 <iframe id="web-frame" src=""></iframe>
             </div>
         </div>
 
-        <!-- タブ2: アルバム (SwiftのAlbumViewに対応) -->
+        <!-- タブ2: アルバム -->
         <div id="tab-album" class="tab-content">
             <div id="album-view">
-                <h3 style="margin-top:0;">保存されたスクショ</h3>
-                <div class="grid" id="photo-grid">
-                    <!-- キャプチャ画像がここに動的に追加されます -->
-                </div>
+                <h3 style="margin-top:0; color:#24292e;">🎨 保存された正解画像</h3>
+                <div class="grid" id="photo-grid"></div>
             </div>
         </div>
 
     </div>
 
-    <!-- ボトムナビゲーション -->
+    <!-- ナビゲーション -->
     <nav class="tab-bar">
         <button class="tab-item active" onclick="switchTab('scanner')">
             <span class="tab-icon">🔍</span>
@@ -188,47 +190,29 @@
         let streamRef = null;
         let scanAnimationId = null;
 
-        // --- 1. カメラ・QRコードスキャン処理（解像度とピントの最適化版） ---
+        // --- 1. カメラ & QRスキャン処理 ---
         async function startCamera() {
             stopCamera();
-
-            const constraints = {
-                video: {
-                    facingMode: "environment", // 背面カメラ
-                    width: { ideal: 1280 },    // 認識率を高める720p解像度
-                    height: { ideal: 720 },
-                    focusMode: "continuous"    // オートフォーカス
-                },
-                audio: false
-            };
-
             try {
-                streamRef = await navigator.mediaDevices.getUserMedia(constraints);
+                streamRef = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 }, focusMode: "continuous" },
+                    audio: false
+                });
                 video.srcObject = streamRef;
                 video.setAttribute("playsinline", true);
                 video.setAttribute("webkit-playsinline", true);
-                
                 video.addEventListener('loadedmetadata', () => {
                     video.play();
-                    setTimeout(() => {
-                        scanAnimationId = requestAnimationFrame(tick);
-                    }, 300);
+                    setTimeout(() => { scanAnimationId = requestAnimationFrame(tick); }, 300);
                 });
             } catch (err) {
-                console.error("Camera error:", err);
-                showToast("カメラの起動に失敗しました。HTTPS環境や権限を確認してください。");
+                showToast("カメラの起動に失敗しました。HTTPS環境を確認してください。");
             }
         }
 
         function stopCamera() {
-            if (scanAnimationId) {
-                cancelAnimationFrame(scanAnimationId);
-                scanAnimationId = null;
-            }
-            if (streamRef) {
-                streamRef.getTracks().forEach(track => track.stop());
-                streamRef = null;
-            }
+            if (scanAnimationId) cancelAnimationFrame(scanAnimationId);
+            if (streamRef) streamRef.getTracks().forEach(track => track.stop());
         }
 
         function tick() {
@@ -236,89 +220,117 @@
                 scanAnimationId = requestAnimationFrame(tick);
                 return;
             }
-
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
                 const canvas = document.createElement("canvas");
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
-                
                 const ctx = canvas.getContext("2d");
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                
                 const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                
                 try {
-                    // jsQRで解析を実行
-                    const code = jsQR(imageData.data, imageData.width, imageData.height, {
-                        inversionAttempts: "dontInvert",
-                    });
-
+                    const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "dontInvert" });
                     if (code && code.data) {
                         showToast("🎉 QRコードを検出しました！");
                         stopCamera();
                         openWebView(code.data);
-                        return; 
+                        return;
                     }
-                } catch (e) {
-                    console.error("jsQR error:", e);
-                }
+                } catch (e) { console.error(e); }
             }
             scanAnimationId = requestAnimationFrame(tick);
         }
 
-        // --- 2. WEBビュー処理 & ロングプレス ---
+        // --- 2. WEBビュー処理 ---
         function openWebView(url) {
             scannerView.style.display = 'none';
             webViewContainer.style.display = 'block';
             webFrame.src = url;
         }
 
-        // 1秒間の長押し判定（iOSのUILongPressGesture風）
+        // --- 3. 画像自動検知 & 長押し保存処理 ---
         let pressTimer;
-        longPressLayer.addEventListener('touchstart', (e) => {
-            pressTimer = window.setTimeout(() => { captureWebView(); }, 1000); 
+
+        // 長押しが成立した時の処理
+        function handleLongPress() {
+            try {
+                // iframe内のドキュメントを取得
+                const iframeDocument = webFrame.contentDocument || webFrame.contentWindow.document;
+                
+                // Googleフォーム内のすべての画像(imgタグ)を取得
+                const images = iframeDocument.getElementsByTagName('img');
+                
+                if (images.length === 0) {
+                    showToast("画面内に画像が見つかりませんでした。");
+                    return;
+                }
+
+                showToast("画像を検出中...");
+
+                // フォームに表示されている「最後の画像」を正解画像とみなして抽出
+                // （Googleフォームはヘッダーや回答後グラフィックを順に生成するため、通常は最後のimgが該当します）
+                const targetImg = images[images.length - 1];
+                const imageUrl = targetImg.src;
+
+                if (imageUrl) {
+                    saveImageToAlbum(imageUrl);
+                } else {
+                    showToast("画像のURLを取得できませんでした。");
+                }
+            } catch (error) {
+                // クロスドメイン制限に引っかかった場合のセーフティ
+                console.error(error);
+                showToast("セキュリティ制限により画像を直接抽出できません。");
+            }
+        }
+
+        // 画像のDLおよびアルバムへの追加処理
+        function saveImageToAlbum(url) {
+            // URLから画像データを直接取得してBlob形式にする（画面全体のスクショを回避）
+            fetch(url)
+                .then(response => response.blob())
+                .then(blob => {
+                    const reader = new FileReader();
+                    reader.onloadend = function() {
+                        const base64data = reader.result;
+                        
+                        // アルバム（UI）の先頭に追加
+                        const div = document.createElement('div');
+                        div.className = 'grid-item';
+                        const img = document.createElement('img');
+                        img.src = base64data;
+                        div.appendChild(img);
+                        photoGrid.insertBefore(div, photoGrid.firstChild);
+
+                        showToast("📸 正解画像をアルバムに保存しました！");
+
+                        // 同時に端末のカメラロール（写真フォルダ）へダウンロード保存をトリガー
+                        const a = document.createElement('a');
+                        a.href = base64data;
+                        a.download = `correct_answer_${Date.now()}.png`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                    }
+                    reader.readAsDataURL(blob);
+                })
+                .catch(err => {
+                    console.error(err);
+                    showToast("画像の保存に失敗しました。");
+                });
+        }
+
+        // 各種長押し判定イベントリスナー (1秒ホールド)
+        longPressLayer.addEventListener('touchstart', () => {
+            pressTimer = window.setTimeout(() => { handleLongPress(); }, 1000); 
         });
         longPressLayer.addEventListener('touchend', () => clearTimeout(pressTimer));
         longPressLayer.addEventListener('touchmove', () => clearTimeout(pressTimer));
-        
-        // PCデバッグ用のマウス操作対応
         longPressLayer.addEventListener('mousedown', () => {
-            pressTimer = window.setTimeout(() => captureWebView(), 1000);
+            pressTimer = window.setTimeout(() => { handleLongPress(); }, 1000);
         });
         longPressLayer.addEventListener('mouseup', () => clearTimeout(pressTimer));
 
-        // --- 3. キャプチャ・保存処理（UIGraphicsImageRendererの代替） ---
-        function captureWebView() {
-            showToast("画面をキャプチャ中...");
-            
-            html2canvas(webViewContainer).then(canvas => {
-                const imgDataUrl = canvas.toDataURL("image/png");
-                
-                // アルバムの先頭にグリッドアイテムを追加
-                const div = document.createElement('div');
-                div.className = 'grid-item';
-                const img = document.createElement('img');
-                img.src = imgDataUrl;
-                div.appendChild(img);
-                photoGrid.insertBefore(div, photoGrid.firstChild);
-                
-                showToast("📸 スクショをアルバムに保存しました！");
-                
-                // ブラウザ制限を回避し、端末に画像保存を促すダウンロード処理
-                triggerDownload(imgDataUrl);
-            });
-        }
-
-        function triggerDownload(dataUrl) {
-            const a = document.createElement('a');
-            a.href = dataUrl;
-            a.download = `screenshot_${Date.now()}.png`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-        }
-
-        // --- 4. タブ切り替え処理（TabViewの代替） ---
+        // --- 4. タブ切り替え処理 ---
         function switchTab(tabName) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.tab-item').forEach(el => el.classList.remove('active'));
@@ -342,10 +354,7 @@
             setTimeout(() => { toast.style.display = 'none'; }, 2500);
         }
 
-        // ページロード時にカメラを起動
-        window.onload = () => {
-            startCamera();
-        };
+        window.onload = () => { startCamera(); };
     </script>
 </body>
 </html>
