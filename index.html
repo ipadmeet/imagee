@@ -21,10 +21,6 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            user-select: none;
-            -webkit-user-select: none;
-            /* iOS標準の長押しメニューをグローバルで禁止 */
-            -webkit-touch-callout: none;
         }
         .content-area {
             flex: 1;
@@ -106,6 +102,23 @@
             align-items: center;
             margin-bottom: 16px;
         }
+        .paste-btn {
+            background-color: var(--ios-blue);
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            box-shadow: 0 2px 6px rgba(0,122,255,0.3);
+        }
+        .paste-btn:active {
+            opacity: 0.8;
+        }
         .grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -124,7 +137,7 @@
             height: 100%;
             object-fit: cover;
         }
-        /* トースト */
+        /* 通知用トースト */
         .toast {
             position: absolute;
             top: 20px;
@@ -142,41 +155,12 @@
             width: max-content;
             max-width: 80%;
         }
-        /* 長押し位置に表示するカスタムポップアップ */
-        .custom-popup {
-            position: absolute;
-            display: none;
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border-radius: 12px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-            padding: 12px 20px;
-            z-index: 99999;
-            font-size: 15px;
-            font-weight: 600;
-            color: var(--ios-blue);
-            white-space: nowrap;
-            border: 1px solid rgba(0,0,0,0.1);
-            transform: translate(-50%, -120%); /* 指の少し上に表示 */
-            animation: popFade 0.15s ease-out;
-        }
-        .custom-popup:active {
-            background: rgba(230, 230, 230, 0.95);
-        }
-        @keyframes popFade {
-            from { opacity: 0; transform: translate(-50%, -100%) scale(0.9); }
-            to { opacity: 1; transform: translate(-50%, -120%) scale(1); }
-        }
     </style>
 </head>
 <body>
 
-    <!-- 通知用トースト -->
+    <!-- 保存成功時などの通知用トースト -->
     <div id="toast" class="toast"></div>
-
-    <!-- 長押し箇所に浮かび上がるカスタムポップアップ -->
-    <div id="custom-popup" class="custom-popup" onclick="triggerPasteAction()">📋 画像をアルバムに保存</div>
 
     <!-- メインコンテンツ -->
     <div class="content-area">
@@ -196,6 +180,10 @@
             <div id="album-view">
                 <div class="album-header">
                     <h3 style="margin:0; color:#000; font-size: 20px;">🎨 コレクション</h3>
+                    <!-- アルバム内に配置したペーストボタン -->
+                    <button class="paste-btn" onclick="pasteFromClipboard()">
+                        📋 画像をペースト
+                    </button>
                 </div>
                 <div class="grid" id="photo-grid"></div>
             </div>
@@ -222,20 +210,13 @@
         const webFrame = document.getElementById('web-frame');
         const toast = document.getElementById('toast');
         const photoGrid = document.getElementById('photo-grid');
-        const customPopup = document.getElementById('custom-popup');
 
         let streamRef = null;
         let scanAnimationId = null;
-        let pressTimer;
-        let lastTouchX = 0;
-        let lastTouchY = 0;
 
         window.onload = () => { 
             loadSavedImages();
             startCamera(); 
-            
-            // アプリ全体で標準コンテキストメニューを完全に禁止
-            document.addEventListener('contextmenu', e => e.preventDefault());
         };
 
         // --- 1. カメラ & QRスキャン処理 ---
@@ -315,7 +296,7 @@
             images.forEach(data => addImageToGrid(data, false));
         }
 
-        // クリップボードから回収してアルバムに入れる処理
+        // ペーストボタンが押された時にクリップボードから画像を回収する処理
         async function pasteFromClipboard() {
             try {
                 const clipboardItems = await navigator.clipboard.read();
@@ -329,60 +310,18 @@
                                 showToast("📸 アルバムに保存しました！");
                             };
                             reader.readAsDataURL(blob);
-                            return true;
+                            return;
                         }
                     }
                 }
-                return false;
+                showToast("📋 クリップボードに画像がありません。画像をコピーしてから押してください。");
             } catch (err) {
-                return false;
+                showToast("貼り付けの権限が拒否されました。");
             }
         }
 
-        // --- 3. 長押し位置へのポップアップ制御 ---
-        function showCustomPopup(x, y) {
-            customPopup.style.left = `${x}px`;
-            customPopup.style.top = `${y}px`;
-            customPopup.style.display = 'block';
-        }
-
-        function hideCustomPopup() {
-            customPopup.style.display = 'none';
-        }
-
-        // カスタムポップアップがタップされた時の処理
-        async function triggerPasteAction() {
-            hideCustomPopup();
-            // 自動でアルバムタブへ切り替え
-            switchTab('album');
-        }
-
-        // タッチ開始時に位置を記憶
-        webViewContainer.addEventListener('touchstart', (e) => {
-            hideCustomPopup();
-            const touch = e.touches[0];
-            lastTouchX = touch.clientX;
-            lastTouchY = touch.clientY;
-            
-            // 1秒ホールドでポップアップ出現
-            pressTimer = window.setTimeout(() => { 
-                showCustomPopup(lastTouchX, lastTouchY); 
-            }, 1000); 
-        }, { passive: true });
-
-        webViewContainer.addEventListener('touchend', () => clearTimeout(pressTimer), { passive: true });
-        webViewContainer.addEventListener('touchmove', () => clearTimeout(pressTimer), { passive: true });
-        
-        // 画面の他の場所をタップしたらポップアップを消す
-        document.addEventListener('touchstart', (e) => {
-            if (e.target !== customPopup) {
-                hideCustomPopup();
-            }
-        }, { passive: true });
-
-
-        // --- 4. タブ切り替え & 自動ペースト連動 ---
-        async function switchTab(tabName) {
+        // --- 3. タブ切り替え処理 ---
+        function switchTab(tabName) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.tab-item').forEach(el => el.classList.remove('active'));
 
@@ -391,18 +330,12 @@
                 document.querySelectorAll('.tab-item')[0].classList.add('active');
                 webViewContainer.style.display = 'none';
                 scannerView.style.display = 'block';
-                hideCustomPopup();
                 startCamera();
             } else if (tabName === 'album') {
                 document.getElementById('tab-album').classList.add('active');
                 document.querySelectorAll('.tab-item')[1].classList.add('active');
                 stopCamera();
-
-                // タブが切り替わった瞬間にクリップボードを読み込む
-                const success = await pasteFromClipboard();
-                if (!success) {
-                    showToast("📋 クリップボードに正解画像（スクショ）がありません。");
-                }
+                // タブ切り替え時の自動読み込み・ポップアップ表示はすべて削除されました
             }
         }
 
