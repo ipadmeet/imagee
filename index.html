@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>クイズ＆アルバムアプリ</title>
+    <title>クイズ＆アルバムアプリ (Form連携版)</title>
     <!-- Tailwind CSS (スタイリング用) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Lucide Icons (アイコン用) -->
@@ -29,39 +29,80 @@
     <!-- メインコンテンツエリア -->
     <main class="flex-1 flex flex-col items-center justify-start p-4 w-full max-w-md mx-auto bg-white shadow-md overflow-y-auto pb-24">
         
-        <!-- MARK: - クイズ画面 (タブ0) -->
-        <section id="quiz-tab" class="tab-content active flex-col items-center w-full space-y-6 pt-6">
-            <h2 class="text-2xl font-bold text-gray-800 text-center">設問：「今日」の英語は？</h2>
+        <!-- MARK: - クイズ＆Form連携画面 (タブ0) -->
+        <section id="quiz-tab" class="tab-content active flex-col items-center w-full space-y-5 pt-4">
+            <h2 class="text-2xl font-bold text-gray-800 text-center">Google Form クイズ連携</h2>
             
-            <!-- 3つの選択肢ボタン -->
-            <div class="flex flex-col space-y-3 w-full px-4">
-                <button onclick="checkAnswer('yesterday')" class="w-full py-3.5 px-4 text-blue-600 font-semibold border-2 border-blue-500 rounded-xl hover:bg-blue-50 active:bg-blue-100 transition duration-200 text-center">
-                    yesterday
-                </button>
-                <button onclick="checkAnswer('today')" class="w-full py-3.5 px-4 text-blue-600 font-semibold border-2 border-blue-500 rounded-xl hover:bg-blue-50 active:bg-blue-100 transition duration-200 text-center">
-                    today
-                </button>
-                <button onclick="checkAnswer('tomorrow')" class="w-full py-3.5 px-4 text-blue-600 font-semibold border-2 border-blue-500 rounded-xl hover:bg-blue-50 active:bg-blue-100 transition duration-200 text-center">
-                    tomorrow
-                </button>
+            <!-- 未回答（初期状態）の表示エリア -->
+            <div id="unsolved-area" class="w-full flex flex-col items-center space-y-5">
+                <p class="text-sm text-gray-600 text-center px-4 leading-relaxed">
+                    下のQRコードをスキャンするか、ボタンからGoogle Formのクイズに挑戦してください。<br>
+                    正解すると、完了画面にこのアプリへ戻る特別なリンクが表示されます。
+                </p>
+
+                <!-- QRコード表示エリア (APIで自動生成) -->
+                <div class="bg-white p-4 rounded-2xl shadow-md border border-gray-200 flex flex-col items-center space-y-2">
+                    <img id="qr-image" src="" alt="Google Form QR Code" class="w-40 h-40">
+                    <span class="text-xs text-gray-400">QRコードをスキャンしてクイズへ</span>
+                </div>
+
+                <!-- 直接フォームを開くボタン -->
+                <div class="w-full px-4">
+                    <a id="form-link-btn" href="#" target="_blank" class="block w-full py-3.5 px-4 text-center bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl shadow-md transition duration-200 flex items-center justify-center gap-2">
+                        <i data-lucide="external-link" class="w-5 h-5"></i>
+                        Google Formでクイズを解く
+                    </a>
+                </div>
+
+                <!-- 管理者用/設定用ヘルプアコーディオン -->
+                <div class="w-full px-4 mt-2">
+                    <details class="bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs text-gray-600">
+                        <summary class="font-bold cursor-pointer select-none flex items-center gap-1 text-gray-700">
+                            <i data-lucide="settings" class="w-3.5 h-3.5"></i> Google Formの設定手順（管理者向け）
+                        </summary>
+                        <div class="mt-2 space-y-2 leading-relaxed">
+                            <p><strong>1. Form設定:</strong> クイズ形式のGoogle Formを作成します。</p>
+                            <p><strong>2. リンクの準備:</strong> このアプリをGitHub等に公開後、そのURLをコピーします。</p>
+                            <p><strong>3. パラメータの付与:</strong> コピーしたURLの末尾に <code class="bg-gray-200 px-1 rounded">?status=correct</code> を付けます。<br>
+                               (例: <span class="text-blue-600 break-all select-all font-mono" id="setup-correct-url">https://yourname.github.io/repo/?status=correct</span>)
+                            </p>
+                            <p><strong>4. 完了メッセージに設定:</strong> Google Formの「設定」>「プレゼンテーション」>「確認メッセージ」に上記URLを貼り付け、「正解画像を受け取るリンク」として保存します。</p>
+                        </div>
+                    </details>
+                </div>
+                
+                <!-- テスト・開発用デモシミュレーター -->
+                <div class="w-full px-4 pt-2 border-t border-gray-100">
+                    <button onclick="simulateCorrect()" class="w-full py-2 px-3 text-xs text-gray-500 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition text-center flex items-center justify-center gap-1">
+                        <i data-lucide="play-circle" class="w-4 h-4"></i> デモ：Google Formで正解して戻ってきた状態を試す
+                    </button>
+                </div>
             </div>
 
-            <!-- クイズ結果の判定メッセージ -->
-            <div id="quiz-message" class="text-lg font-bold text-center h-12 px-4 flex items-center justify-center transition-colors duration-200">
-                <!-- JavaScriptで動的に挿入 -->
-            </div>
+            <!-- 正解時（パラメータ検知時）に自動表示される画像エリア -->
+            <div id="correct-image-area" class="hidden flex-col items-center space-y-4 w-full px-4 transition-all duration-300">
+                <div class="text-center space-y-1">
+                    <div class="inline-flex items-center justify-center w-12 h-12 bg-green-100 text-green-600 rounded-full mb-1">
+                        <i data-lucide="check" class="w-6 h-6"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-green-600">クイズ正解！おめでとうございます🎉</h3>
+                    <p class="text-xs text-gray-500">下の画像をダブルタップしてアルバムに追加しましょう！</p>
+                </div>
 
-            <!-- 正解時に表示される画像エリア -->
-            <div id="correct-image-area" class="hidden flex-col items-center space-y-2 w-full px-4 transition-all duration-300">
                 <!-- 
                   💡 GitHubで公開する際は、同じリポジトリ内に「image1.png」などの画像ファイルを配置してください。
-                  ここではプレースホルダー画像としてダミー画像を初期設定にしていますが、自由に書き換え可能です。
                 -->
-                <img id="quiz-image" src="image1.png" onerror="this.src='https://images.unsplash.com/photo-1506784983877-45594efa4cbe?auto=format&fit=crop&w=600&q=80'" alt="正解画像" class="double-tap-target max-h-[220px] w-auto object-contain rounded-xl shadow-lg border border-gray-200 cursor-pointer active:scale-95 transition-transform duration-100">
+                <div class="relative group">
+                    <img id="quiz-image" src="image1.png" onerror="this.src='https://images.unsplash.com/photo-1506784983877-45594efa4cbe?auto=format&fit=crop&w=600&q=80'" alt="正解画像" class="double-tap-target max-h-[240px] w-auto object-contain rounded-xl shadow-lg border border-gray-200 cursor-pointer active:scale-95 transition-transform duration-100">
+                </div>
                 
-                <span class="text-xs text-gray-500 flex items-center gap-1">
-                    <i data-lucide="info" class="w-3.5 h-3.5"></i> 画像をダブルタップしてアルバムに追加
+                <span class="text-xs text-gray-500 flex items-center gap-1 animate-pulse">
+                    <i data-lucide="pointer" class="w-3.5 h-3.5"></i> 画像をダブルタップして保存
                 </span>
+
+                <button onclick="resetQuizState()" class="mt-4 text-xs text-blue-600 hover:underline flex items-center gap-1">
+                    <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> もう一度Formから回答する
+                </button>
             </div>
         </section>
 
@@ -76,7 +117,7 @@
                 </div>
                 <h3 class="text-lg font-bold text-gray-700">アルバムは空です</h3>
                 <p class="text-sm text-gray-500 leading-relaxed">
-                    クイズに正解し、表示された画像をダブルタップすると、ここに追加されます。
+                    Google Formでクイズに正解し、表示された画像をダブルタップすると、ここに追加されます。
                 </p>
             </div>
 
@@ -98,7 +139,7 @@
     <nav class="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-gray-200 flex justify-around items-center h-16 shadow-lg z-40">
         <button onclick="switchTab(0)" id="nav-quiz" class="flex flex-col items-center justify-center w-full h-full text-blue-600 transition-colors duration-200">
             <i data-lucide="help-circle" class="w-6 h-6"></i>
-            <span class="text-xs mt-1 font-medium">クイズ</span>
+            <span class="text-xs mt-1 font-medium">クイズ Form</span>
         </button>
         <button onclick="switchTab(1)" id="nav-album" class="flex flex-col items-center justify-center w-full h-full text-gray-400 transition-colors duration-200">
             <i data-lucide="image" class="w-6 h-6"></i>
@@ -111,24 +152,93 @@
         // Lucideアイコンの初期化
         lucide.createIcons();
 
+        // 🔗 【要修正】あなたのGoogle Formの回答リンクをここに設定してください。
+        // ※これはデモ用のデフォルトURLです。
+        const googleFormUrl = "https://docs.google.com/forms/d/e/1FAIpQLSfD_P7bYgM6T6A4_xS_hP-v6g7uD-tE_o8R9JmF8lX7rK_9ag/viewform";
+
         // 状態管理
         let savedItems = []; // アルバムに保存された画像パスの配列
         let lastTap = 0; // ダブルタップ検出用テンポラリ変数
-        const imageName = "image1.png"; // 使用する画像ファイル名
 
         // DOMの参照
         const quizTab = document.getElementById('quiz-tab');
         const albumTab = document.getElementById('album-tab');
         const navQuiz = document.getElementById('nav-quiz');
         const navAlbum = document.getElementById('nav-album');
-        const quizMessage = document.getElementById('quiz-message');
+        const unsolvedArea = document.getElementById('unsolved-area');
         const correctImageArea = document.getElementById('correct-image-area');
         const quizImage = document.getElementById('quiz-image');
         const albumEmpty = document.getElementById('album-empty');
         const albumGrid = document.getElementById('album-grid');
         const toast = document.getElementById('toast');
+        const qrImage = document.getElementById('qr-image');
+        const formLinkBtn = document.getElementById('form-link-btn');
+        const setupCorrectUrl = document.getElementById('setup-correct-url');
 
-        // タブ切り替え処理
+        window.onload = function() {
+            // ローカルストレージから保存済みのアルバムデータを復元
+            const storedAlbum = localStorage.getItem('my_quiz_album');
+            if (storedAlbum) {
+                savedItems = JSON.parse(storedAlbum);
+            }
+
+            // 現在のページのURLをもとに設定すべきリダイレクトURL例を生成
+            const basePageUrl = window.location.href.split('?')[0];
+            setupCorrectUrl.textContent = basePageUrl + "?status=correct";
+
+            // Google Form への遷移ボタン＆QRコードの設定
+            formLinkBtn.href = googleFormUrl;
+            // QRコード生成APIを利用してGoogle FormのQRコードを生成・表示
+            qrImage.src = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(googleFormUrl)}`;
+
+            // URLパラメータをチェック
+            checkUrlParameters();
+        };
+
+        // URLパラメータに "?status=correct" が含まれているか検出する
+        function checkUrlParameters() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const status = urlParams.get('status');
+
+            if (status === 'correct') {
+                // 正解状態でアクセスされた場合
+                showCorrectState();
+            } else {
+                // 未回答の通常状態
+                showUnsolvedState();
+            }
+        }
+
+        // 正解状態を表示する
+        function showCorrectState() {
+            unsolvedArea.classList.add('hidden');
+            correctImageArea.classList.remove('hidden');
+            correctImageArea.classList.add('flex');
+        }
+
+        // 未回答（QRコード表示）状態を表示する
+        function showUnsolvedState() {
+            unsolvedArea.classList.remove('hidden');
+            correctImageArea.classList.add('hidden');
+            correctImageArea.classList.remove('flex');
+        }
+
+        // 開発・テスト用に正解状態を擬似的に体験する
+        function simulateCorrect() {
+            showCorrectState();
+            // URLバーにパラメータを表示（履歴には残さない）
+            const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?status=correct';
+            window.history.pushState({ path: newUrl }, '', newUrl);
+        }
+
+        // 状態を初期状態（回答前）に戻す
+        function resetQuizState() {
+            showUnsolvedState();
+            // URLパラメータをクリア
+            const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+            window.history.pushState({ path: cleanUrl }, '', cleanUrl);
+        }
+
         function switchTab(tabIndex) {
             if (tabIndex === 0) {
                 // クイズタブをアクティブに
@@ -150,21 +260,6 @@
             }
         }
 
-        // クイズの答え合わせ
-        function checkAnswer(chosen) {
-            if (chosen === 'today') {
-                quizMessage.textContent = "正解！🎉";
-                quizMessage.className = "text-lg font-bold text-center h-12 px-4 flex items-center justify-center text-green-600";
-                correctImageArea.classList.remove('hidden');
-                correctImageArea.classList.add('flex');
-            } else {
-                quizMessage.textContent = "不正解...😢 もう一度考えてみよう！";
-                quizMessage.className = "text-lg font-bold text-center h-12 px-4 flex items-center justify-center text-red-500";
-                correctImageArea.classList.add('hidden');
-                correctImageArea.classList.remove('flex');
-            }
-        }
-
         // ダブルタップのイベント検知
         quizImage.addEventListener('click', function(e) {
             const currentTime = new Date().getTime();
@@ -180,9 +275,14 @@
 
         // アルバムに画像を追加する処理
         function addToAlbum() {
-            // 現在表示されている画像のソースパスを取得して配列に追加
             const currentSrc = quizImage.src;
+            
+            // 重複して同じ画像を追加しないようにチェックする場合はここで制御可能
+            // 今回は複数コレクションできるよう制限なしで追加します
             savedItems.push(currentSrc);
+            
+            // ローカルストレージにデータを即座に保存（リロードしても消えません）
+            localStorage.setItem('my_quiz_album', JSON.stringify(savedItems));
             
             // トースト通知を表示
             showToastMessage();
@@ -214,19 +314,39 @@
                 albumGrid.innerHTML = '';
                 
                 // 保存されている画像をループしてグリッドに追加
-                savedItems.forEach(src => {
+                savedItems.forEach((src, index) => {
                     const imgContainer = document.createElement('div');
-                    imgContainer.className = "aspect-square w-full overflow-hidden rounded-lg bg-gray-100 border border-gray-200 shadow-sm";
+                    imgContainer.className = "relative aspect-square w-full overflow-hidden rounded-lg bg-gray-100 border border-gray-200 shadow-sm group";
                     
                     const img = document.createElement('img');
                     img.src = src;
-                    img.alt = "保存した画像";
+                    img.alt = `保存した画像 ${index + 1}`;
                     img.className = "w-full h-full object-cover transform active:scale-95 transition-transform duration-150";
                     
+                    // 削除用ミニボタン
+                    const deleteBtn = document.createElement('button');
+                    deleteBtn.innerHTML = '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i>';
+                    deleteBtn.className = "absolute top-1 right-1 bg-red-500/80 text-white p-1 rounded-full opacity-70 hover:opacity-100 transition duration-150 shadow";
+                    deleteBtn.onclick = function(e) {
+                        e.stopPropagation(); // コンテナのクリックイベント干渉を防止
+                        deleteItem(index);
+                    };
+
                     imgContainer.appendChild(img);
+                    imgContainer.appendChild(deleteBtn);
                     albumGrid.appendChild(imgContainer);
                 });
+
+                // 新しく追加されたアイコン要素をLucideでレンダリング
+                lucide.createIcons();
             }
+        }
+
+        // アルバムから特定の画像を削除する機能
+        function deleteItem(index) {
+            savedItems.splice(index, 1);
+            localStorage.setItem('my_quiz_album', JSON.stringify(savedItems));
+            renderAlbum();
         }
     </script>
 </body>
