@@ -8,6 +8,10 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Lucide Icons (アイコン用) -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- HTML5 QR Code (カメラでのQRコードスキャン用ライブラリ) -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    
     <style>
         /* モバイルでのダブルタップズームを無効化して、ダブルタップ操作を快適にする */
         .double-tap-target {
@@ -36,9 +40,31 @@
             <!-- 未回答（初期状態）の表示エリア -->
             <div id="unsolved-area" class="w-full flex flex-col items-center space-y-5">
                 <p class="text-sm text-gray-600 text-center px-4 leading-relaxed">
-                    下のQRコードをスキャンするか、ボタンからGoogle Formのクイズに挑戦してください。<br>
+                    下のQRコードをスキャンするか、<b>アプリのカメラ</b>で問題のQRコードを読み取ってGoogle Formのクイズに挑戦してください。<br>
                     正解すると、完了画面にこのアプリへ戻る特別なリンクが表示されます。
                 </p>
+
+                <!-- 📸 カメラQRコードスキャナーセクション -->
+                <div class="w-full px-4">
+                    <div class="bg-gray-50 border border-gray-200 rounded-2xl p-4 flex flex-col items-center space-y-3">
+                        <span class="text-sm font-bold text-gray-700 flex items-center gap-1.5">
+                            <i data-lucide="camera" class="w-4 h-4 text-emerald-600"></i> カメラでQRコードを読み取る
+                        </span>
+                        
+                        <!-- スキャナー起動用コンテナ -->
+                        <div id="scanner-container" class="hidden w-full overflow-hidden rounded-xl border border-gray-300 bg-black relative aspect-square">
+                            <div id="reader" class="w-full h-full"></div>
+                            <button onclick="stopScanner()" class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-red-600/90 hover:bg-red-700 text-white text-xs px-4 py-2 rounded-full shadow-lg flex items-center gap-1 z-10 font-semibold">
+                                <i data-lucide="x" class="w-3.5 h-3.5"></i> キャンセル
+                            </button>
+                        </div>
+
+                        <button id="start-scan-btn" onclick="startScanner()" class="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl shadow-md transition duration-200 flex items-center justify-center gap-2">
+                            <i data-lucide="qr-code" class="w-4 h-4"></i>
+                            カメラを起動してスキャンする
+                        </button>
+                    </div>
+                </div>
 
                 <!-- QRコード表示エリア (APIで自動生成) -->
                 <div class="bg-white p-4 rounded-2xl shadow-md border border-gray-200 flex flex-col items-center space-y-2">
@@ -175,6 +201,11 @@
         const formLinkBtn = document.getElementById('form-link-btn');
         const setupCorrectUrl = document.getElementById('setup-correct-url');
 
+        // 📸 QRスキャナー用の状態変数
+        let html5QrCode = null;
+        const scannerContainer = document.getElementById('scanner-container');
+        const startScanBtn = document.getElementById('start-scan-btn');
+
         window.onload = function() {
             // ローカルストレージから保存済みのアルバムデータを復元
             const storedAlbum = localStorage.getItem('my_quiz_album');
@@ -239,7 +270,70 @@
             window.history.pushState({ path: cleanUrl }, '', cleanUrl);
         }
 
+        // 📸 カメラでのQRコードスキャン開始
+        function startScanner() {
+            scannerContainer.classList.remove('hidden');
+            startScanBtn.classList.add('hidden');
+            
+            // スキャナーインスタンスの生成 (すでに存在しない場合のみ)
+            if (!html5QrCode) {
+                html5QrCode = new Html5Qrcode("reader");
+            }
+            
+            const config = { 
+                fps: 10, 
+                qrbox: (width, height) => {
+                    // スマートフォン・デスクトップ両方に対応するレスポンシブなスキャン枠サイズ
+                    const size = Math.min(width, height) * 0.7;
+                    return { width: size, height: size };
+                }
+            };
+            
+            // 背面カメラ(facingMode: "environment")を優先して起動
+            html5QrCode.start(
+                { facingMode: "environment" }, 
+                config, 
+                (decodedText) => {
+                    // スキャン成功時：即座にカメラを止める
+                    stopScanner();
+                    
+                    // スキャンしたURLが有効なWebリンクの場合は開く
+                    if (decodedText.startsWith("http://") || decodedText.startsWith("https://")) {
+                        window.open(decodedText, '_blank');
+                    } else {
+                        alert("読み取った内容: " + decodedText);
+                    }
+                },
+                (errorMessage) => {
+                    // エラーはスキャン中頻繁に出るためコンソールのみに出力
+                    console.log("QRスキャン試行中...", errorMessage);
+                }
+            ).catch(err => {
+                console.error("カメラ起動エラー: ", err);
+                alert("カメラの起動に失敗しました。カメラのアクセス権限を確認してください。");
+                stopScanner();
+            });
+        }
+
+        // 📸 QRコードスキャン停止
+        function stopScanner() {
+            if (html5QrCode && html5QrCode.isScanning) {
+                html5QrCode.stop().then(() => {
+                    scannerContainer.classList.add('hidden');
+                    startScanBtn.classList.remove('hidden');
+                }).catch(err => {
+                    console.error("スキャナー停止エラー: ", err);
+                });
+            } else {
+                scannerContainer.classList.add('hidden');
+                startScanBtn.classList.remove('hidden');
+            }
+        }
+
         function switchTab(tabIndex) {
+            // タブを切り替えたらスキャナーは安全に停止させる
+            stopScanner();
+
             if (tabIndex === 0) {
                 // クイズタブをアクティブに
                 quizTab.classList.add('active');
