@@ -3,468 +3,324 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>クイズ＆アルバムアプリ</title>
-    <!-- Tailwind CSS (スタイリング用) -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Lucide Icons (アイコン用) -->
-    <script src="https://unpkg.com/lucide@latest"></script>
-    
-    <!-- HTML5 QR Code (カメラでのQRコードスキャン用ライブラリ) -->
-    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
-    
+    <title>QR Form WebApp</title>
+    <!-- QRコード解析ライブラリを読み込み -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <!-- 画面キャプチャ用ライブラリを読み込み -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
-        /* モバイルでのダブルタップズームを完全に無効化してジェスチャー競合を防ぐ */
-        .double-tap-target {
-            touch-action: none; /* 標準のダブルタップズームを防止 */
+        :root {
+            --ios-blue: #007aff;
+            --ios-bg: #f2f2f7;
+            --nav-bg: #ffffff;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--ios-bg);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
             user-select: none;
             -webkit-user-select: none;
-            -webkit-touch-callout: none;
         }
-        /* タブ切り替えのトランジション用 */
+        /* コンテンツエリア */
+        .content-area {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
         .tab-content {
             display: none;
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
         }
         .tab-content.active {
+            display: block;
+        }
+        /* タブバー (iOS風) */
+        .tab-bar {
+            height: 60px;
+            background-color: var(--nav-bg);
+            border-top: 1px solid #d1d1d6;
             display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+        .tab-item {
+            flex: 1;
+            text-align: center;
+            color: #8e8e93;
+            font-size: 11px;
+            cursor: pointer;
+            border: none;
+            background: none;
+            padding: 5px 0;
+        }
+        .tab-item.active {
+            color: var(--ios-blue);
+        }
+        .tab-icon {
+            font-size: 22px;
+            display: block;
+            margin-bottom: 2px;
+        }
+        /* スキャナー画面 */
+        #scanner-view {
+            background: #000;
+        }
+        #video-preview {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        /* WEBビュー画面 */
+        #web-view-container {
+            width: 100%;
+            height: 100%;
+            background: #fff;
+            position: relative;
+        }
+        #web-frame {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        /* アルバム画面 */
+        #album-view {
+            overflow-y: auto;
+            padding: 10px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+        .grid-item {
+            aspect-ratio: 1 / 1;
+            background: #e5e5ea;
+            border-radius: 4px;
+            overflow: hidden;
+            position: relative;
+        }
+        .grid-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        /* トースト通知 */
+        .toast {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            color: #fff;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            z-index: 9999;
+            display: none;
         }
     </style>
 </head>
-<body class="bg-gray-100 font-sans min-h-screen flex flex-col justify-between">
+<body>
 
-    <!-- メインコンテンツエリア -->
-    <main class="flex-1 flex flex-col items-center justify-start p-4 w-full max-w-md mx-auto bg-white shadow-md overflow-y-auto pb-24">
+    <!-- 通知用トースト -->
+    <div id="toast" class="toast"></div>
+
+    <!-- メインコンテンツ -->
+    <div class="content-area">
         
-        <!-- MARK: - クイズ＆Form連携画面 (タブ0) -->
-        <section id="quiz-tab" class="tab-content active flex-col items-center w-full space-y-5 pt-4">
-            <h2 class="text-2xl font-bold text-gray-800 text-center">Google Form クイズ連携</h2>
-            
-            <!-- 未回答（初期状態）の表示エリア -->
-            <div id="unsolved-area" class="w-full flex flex-col items-center space-y-5">
-                <p class="text-sm text-gray-600 text-center px-4 leading-relaxed">
-                    問題用紙などのQRコードをアプリのカメラでスキャンしてクイズに挑戦してください。<br>
-                    正解すると、完了画面にこのアプリへ画像を受け取って戻るリンクが表示されます。
-                </p>
+        <!-- タブ1: スキャナー / WEB表示（SwiftのContentView側に対応） -->
+        <div id="tab-scanner" class="tab-content active">
+            <!-- カメラプレビュー -->
+            <div id="scanner-view" style="width:100%; height:100%;">
+                <video id="video-preview" autoplay playsinline muted></video>
+            </div>
+            <!-- スキャン後にフォームを開く擬似WebView -->
+            <div id="web-view-container" style="display: none;">
+                <!-- 長押し判定のためのオーバーレイ層 -->
+                <div id="longpress-layer" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:10; cursor:pointer;"></div>
+                <iframe id="web-frame" src=""></iframe>
+            </div>
+        </div>
 
-                <!-- 📸 カメラQRコードスキャナーセクション -->
-                <div class="w-full px-4">
-                    <div class="bg-gray-50 border border-gray-200 rounded-2xl p-4 flex flex-col items-center space-y-3">
-                        <span class="text-sm font-bold text-gray-700 flex items-center gap-1.5">
-                            <i data-lucide="camera" class="w-4 h-4 text-emerald-600"></i> カメラでQRコードを読み取る
-                        </span>
-                        
-                        <!-- スキャナー起動用コンテナ -->
-                        <div id="scanner-container" class="hidden w-full overflow-hidden rounded-xl border border-gray-300 bg-black relative aspect-square">
-                            <div id="reader" class="w-full h-full"></div>
-                            <button onclick="stopScanner()" class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-red-600/90 hover:bg-red-700 text-white text-xs px-4 py-2 rounded-full shadow-lg flex items-center gap-1 z-10 font-semibold">
-                                <i data-lucide="x" class="w-3.5 h-3.5"></i> キャンセル
-                            </button>
-                        </div>
-
-                        <button id="start-scan-btn" onclick="startScanner()" class="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-xl shadow-md transition duration-200 flex items-center justify-center gap-2">
-                            <i data-lucide="qr-code" class="w-5 h-5"></i>
-                            カメラを起動してスキャンする
-                        </button>
-                    </div>
-                </div>
-
-                <!-- 管理者用/設定用ヘルプアコーディオン -->
-                <div class="w-full px-4 mt-2">
-                    <details class="bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs text-gray-600">
-                        <summary class="font-bold cursor-pointer select-none flex items-center gap-1 text-gray-700">
-                            <i data-lucide="settings" class="w-3.5 h-3.5"></i> クイズ画像配布の確認メッセージ設定方法
-                        </summary>
-                        <div class="mt-2 space-y-2 leading-relaxed">
-                            <p>Google Formクイズの送信完了メッセージに、正解者に渡したい画像URL付きリンクを設定します。</p>
-                            <p><strong>パラメータの付与形式:</strong><br>
-                               <span class="text-blue-600 font-semibold break-all">?status=correct&image=[画像URL]</span>
-                            </p>
-                            <p class="bg-gray-200 p-2 rounded text-[10px] font-mono break-all" id="setup-correct-url">
-                                例: https://yourname.github.io/repo/?status=correct&image=https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=400
-                            </p>
-                        </div>
-                    </details>
-                </div>
-                
-                <!-- テスト・開発用デモシミュレーター -->
-                <div class="w-full px-4 pt-2 border-t border-gray-100">
-                    <button onclick="simulateCorrect()" class="w-full py-2.5 px-3 text-xs text-gray-500 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition text-center flex items-center justify-center gap-1 font-medium">
-                        <i data-lucide="play-circle" class="w-4 h-4"></i> デモ：特定の画像をFormから受け取って戻ってきた状態をテスト
-                    </button>
+        <!-- タブ2: アルバム (SwiftのAlbumViewに対応) -->
+        <div id="tab-album" class="tab-content">
+            <div id="album-view">
+                <h3 style="margin-top:0;">保存されたスクショ</h3>
+                <div class="grid" id="photo-grid">
+                    <!-- キャプチャ画像がここに動的に追加されます -->
                 </div>
             </div>
+        </div>
 
-            <!-- 正解時（パラメータ検知時）に自動表示される画像エリア -->
-            <div id="correct-image-area" class="hidden flex-col items-center space-y-4 w-full px-4 transition-all duration-300">
-                <div class="text-center space-y-1">
-                    <div class="inline-flex items-center justify-center w-12 h-12 bg-green-100 text-green-600 rounded-full mb-1">
-                        <i data-lucide="check" class="w-6 h-6"></i>
-                    </div>
-                    <h3 class="text-xl font-bold text-green-600">クイズ正解！おめでとうございます🎉</h3>
-                    <p class="text-xs text-gray-500">下の画像をダブルタップしてアルバムに追加しましょう！</p>
-                </div>
-
-                <!-- 動的に読み込まれる画像要素（タッチ無効化・スケール付き） -->
-                <div class="relative group w-full flex justify-center">
-                    <img id="quiz-image" src="" onerror="this.src='https://images.unsplash.com/photo-1506784983877-45594efa4cbe?auto=format&fit=crop&w=600&q=80'" alt="正解画像" class="double-tap-target max-h-[260px] w-auto object-contain rounded-2xl shadow-xl border-2 border-green-200 cursor-pointer transition-transform duration-150 transform hover:scale-[1.02]">
-                </div>
-                
-                <span class="text-xs text-gray-400 flex items-center gap-1 animate-pulse">
-                    <i data-lucide="pointer" class="w-3.5 h-3.5"></i> 画像をダブルタップ、または下のボタンを押して保存
-                </span>
-
-                <!-- 確実に保存するための補助ボタン（ダブルタップが苦手な環境向け） -->
-                <button onclick="addToAlbum()" class="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md transition duration-200 flex items-center justify-center gap-2 text-sm">
-                    <i data-lucide="download" class="w-4 h-4"></i>
-                    アルバムに画像を保存する
-                </button>
-
-                <button onclick="resetQuizState()" class="mt-2 text-xs text-blue-600 hover:underline flex items-center gap-1">
-                    <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> もう一度スキャン画面に戻る
-                </button>
-            </div>
-        </section>
-
-        <!-- MARK: - アルバム画面 (タブ1) -->
-        <section id="album-tab" class="tab-content flex-col w-full pt-4">
-            <h2 class="text-2xl font-bold text-gray-800 px-4 mb-4 flex items-center justify-between">
-                <span>アルバム</span>
-                <!-- 全件削除ボタン -->
-                <button id="clear-album-btn" onclick="clearAllAlbum()" class="hidden text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-0.5">
-                    <i data-lucide="trash-2" class="w-3 h-3"></i> 全てクリア
-                </button>
-            </h2>
-            
-            <!-- 空状態の表示 -->
-            <div id="album-empty" class="flex flex-col items-center justify-center space-y-4 py-16 px-6 text-center">
-                <div class="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center text-gray-400">
-                    <i data-lucide="image" class="w-10 h-10"></i>
-                </div>
-                <h3 class="text-lg font-bold text-gray-700">アルバムは空です</h3>
-                <p class="text-sm text-gray-500 leading-relaxed">
-                    Google Formクイズの正解画面からアプリに戻り、画像をダブルタップすると、ここに追加されます。
-                </p>
-            </div>
-
-            <!-- 画像がある場合のグリッド表示 -->
-            <div id="album-grid" class="hidden grid-cols-3 gap-2 px-4 pb-6">
-                <!-- JavaScriptで動的にアイテム（img）が挿入されます -->
-            </div>
-        </section>
-
-    </main>
-
-    <!-- 画面下部に追加通知トーストを表示 -->
-    <div id="toast" class="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-black/85 text-white text-sm py-2.5 px-5 rounded-full shadow-lg pointer-events-none opacity-0 transition-all duration-300 transform translate-y-2 flex items-center gap-2">
-        <i data-lucide="check-circle" class="w-4 h-4 text-green-400"></i>
-        <span>アルバムに画像を追加しました！</span>
     </div>
 
-    <!-- MARK: - フッターナビゲーション (タブバー) -->
-    <nav class="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-gray-200 flex justify-around items-center h-16 shadow-lg z-40">
-        <button onclick="switchTab(0)" id="nav-quiz" class="flex flex-col items-center justify-center w-full h-full text-blue-600 transition-colors duration-200">
-            <i data-lucide="help-circle" class="w-6 h-6"></i>
-            <span class="text-xs mt-1 font-medium">クイズ Form</span>
+    <!-- ボトムナビゲーション -->
+    <nav class="tab-bar">
+        <button class="tab-item active" onclick="switchTab('scanner')">
+            <span class="tab-icon">🔍</span>
+            Scanner
         </button>
-        <button onclick="switchTab(1)" id="nav-album" class="flex flex-col items-center justify-center w-full h-full text-gray-400 transition-colors duration-200">
-            <i data-lucide="image" class="w-6 h-6"></i>
-            <span class="text-xs mt-1 font-medium">アルバム</span>
+        <button class="tab-item" onclick="switchTab('album')">
+            <span class="tab-icon">🖼️</span>
+            Album
         </button>
     </nav>
 
-    <!-- MARK: - スクリプト (ロジック制御) -->
     <script>
-        // Lucideアイコンの初期化
-        lucide.createIcons();
-
-        // 状態管理
-        let savedItems = []; // アルバムに保存された画像URLの配列
-
-        // DOMの参照
-        const quizTab = document.getElementById('quiz-tab');
-        const albumTab = document.getElementById('album-tab');
-        const navQuiz = document.getElementById('nav-quiz');
-        const navAlbum = document.getElementById('nav-album');
-        const unsolvedArea = document.getElementById('unsolved-area');
-        const correctImageArea = document.getElementById('correct-image-area');
-        const quizImage = document.getElementById('quiz-image');
-        const albumEmpty = document.getElementById('album-empty');
-        const albumGrid = document.getElementById('album-grid');
-        const clearAlbumBtn = document.getElementById('clear-album-btn');
+        const video = document.getElementById('video-preview');
+        const scannerView = document.getElementById('scanner-view');
+        const webViewContainer = document.getElementById('web-view-container');
+        const webFrame = document.getElementById('web-frame');
+        const longPressLayer = document.getElementById('longpress-layer');
+        const photoGrid = document.getElementById('photo-grid');
         const toast = document.getElementById('toast');
-        const setupCorrectUrl = document.getElementById('setup-correct-url');
 
-        // 📸 QRスキャナー用の状態変数
-        let html5QrCode = null;
-        const scannerContainer = document.getElementById('scanner-container');
-        const startScanBtn = document.getElementById('start-scan-btn');
+        let streamRef = null;
+        let scanAnimationId = null;
 
-        window.onload = function() {
-            // ローカルストレージから保存済みのアルバムデータを復元
-            const storedAlbum = localStorage.getItem('my_quiz_album');
-            if (storedAlbum) {
-                savedItems = JSON.parse(storedAlbum);
-            }
-
-            // 現在のページのURLをもとに、設定すべきリダイレクトURLの例を生成
-            const basePageUrl = window.location.href.split('?')[0];
-            setupCorrectUrl.textContent = basePageUrl + "?status=correct&image=https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=400";
-
-            // URLパラメータをチェック
-            checkUrlParameters();
-        };
-
-        // URLパラメータの解析と動的画像の取得
-        function checkUrlParameters() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const status = urlParams.get('status');
-            const imageUrl = urlParams.get('image'); // 動的画像パラメータを取得
-
-            if (status === 'correct') {
-                // 正解状態でアクセスされた場合
-                showCorrectState(imageUrl);
-            } else {
-                // 未回答の通常状態
-                showUnsolvedState();
+        // --- 1. カメラ・QRコードスキャン処理 (AVCaptureMetadataOutputの移植) ---
+        async function startCamera() {
+            try {
+                streamRef = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                video.srcObject = streamRef;
+                video.setAttribute("playsinline", true);
+                video.play();
+                scanAnimationId = requestAnimationFrame(tick);
+            } catch (err) {
+                showToast("カメラの起動に失敗しました。権限を許可してください。");
             }
         }
 
-        // 正解状態を表示して画像をセットする
-        function showCorrectState(imageUrl) {
-            unsolvedArea.classList.add('hidden');
-            correctImageArea.classList.remove('hidden');
-            correctImageArea.classList.add('flex');
-            
-            if (imageUrl) {
-                // Formから指定された画像URLを画像要素にセット
-                quizImage.src = decodeURIComponent(imageUrl);
-            } else {
-                // 画像URLの指定がない場合は、デフォルト画像を表示
-                quizImage.src = 'image1.png';
+        function stopCamera() {
+            if (streamRef) {
+                streamRef.getTracks().forEach(track => track.stop());
             }
+            cancelAnimationFrame(scanAnimationId);
         }
 
-        // 未回答（QRスキャン待ち）状態を表示する
-        function showUnsolvedState() {
-            unsolvedArea.classList.remove('hidden');
-            correctImageArea.classList.add('hidden');
-            correctImageArea.classList.remove('flex');
-        }
+        function tick() {
+            if (video.readyState === video.HAVE_CURRENT_DATA) {
+                const canvas = document.createElement("canvas");
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                
+                // jsQRライブラリでQRコードを解析
+                const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                    inversionAttempts: "dontInvert",
+                });
 
-        // 開発・テスト用に正解・動的画像表示状態を擬似的にシミュレートする
-        function simulateCorrect() {
-            // 例として美しい抽象画のイラストURLをダミー送信
-            const sampleImage = "https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?auto=format&fit=crop&w=600&q=80";
-            showCorrectState(sampleImage);
-            
-            // URLバーに模擬パラメータを表示（履歴には残さない）
-            const encodedImg = encodeURIComponent(sampleImage);
-            const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + `?status=correct&image=${encodedImg}`;
-            window.history.pushState({ path: newUrl }, '', newUrl);
-        }
-
-        // 状態を初期状態に戻す
-        function resetQuizState() {
-            showUnsolvedState();
-            // URLパラメータをクリア
-            const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
-            window.history.pushState({ path: cleanUrl }, '', cleanUrl);
-        }
-
-        // 📸 カメラでのQRコードスキャン開始
-        function startScanner() {
-            scannerContainer.classList.remove('hidden');
-            startScanBtn.classList.add('hidden');
-            
-            if (!html5QrCode) {
-                html5QrCode = new Html5Qrcode("reader");
-            }
-            
-            const config = { 
-                fps: 10, 
-                qrbox: (width, height) => {
-                    const size = Math.min(width, height) * 0.75;
-                    return { width: size, height: size };
+                if (code) {
+                    showToast("QRコードを検出しました");
+                    stopCamera();
+                    openWebView(code.data);
+                    return;
                 }
-            };
+            }
+            scanAnimationId = requestAnimationFrame(tick);
+        }
+
+        // --- 2. WEBビュー処理 & ロングプレス (WKWebView + UILongPressGesture) ---
+        function openWebView(url) {
+            scannerView.style.display = 'none';
+            webViewContainer.style.display = 'block';
             
-            html5QrCode.start(
-                { facingMode: "environment" }, 
-                config, 
-                (decodedText) => {
-                    stopScanner();
-                    
-                    // URLがスキャンされた場合は新しいウィンドウで開く
-                    if (decodedText.startsWith("http://") || decodedText.startsWith("https://")) {
-                        window.open(decodedText, '_blank');
-                    } else {
-                        alert("読み取った内容: " + decodedText);
-                    }
-                },
-                (errorMessage) => {
-                    console.log("QRスキャン中...", errorMessage);
-                }
-            ).catch(err => {
-                console.error("カメラ起動エラー: ", err);
-                alert("カメラの起動に失敗しました。カメラのアクセス権限を確認してください。");
-                stopScanner();
+            // X-Frame-Options回避のため、デモ用に直接入れられるURLか確認
+            // ※本物のGoogleフォームはセキュリティ上iframe内表示を拒否することが多いため、
+            // 実際はURLを表示するか、プロキシを通す必要があります。
+            webFrame.src = url;
+        }
+
+        // ロングプレス（長押し）のシミュレーション (1秒押し)
+        let pressTimer;
+        longPressLayer.addEventListener('touchstart', (e) => {
+            pressTimer = window.setTimeout(() => {
+                captureWebView();
+            }, 1000); 
+        });
+
+        longPressLayer.addEventListener('touchend', () => clearTimeout(pressTimer));
+        longPressLayer.addEventListener('touchmove', () => clearTimeout(pressTimer));
+        // PCのテスト用（クリック長押し）
+        longPressLayer.addEventListener('mousedown', () => {
+            pressTimer = window.setTimeout(() => captureWebView(), 1000);
+        });
+        longPressLayer.addEventListener('mouseup', () => clearTimeout(pressTimer));
+
+        // --- 3. キャプチャ・保存処理 (UIGraphicsImageRendererの移植) ---
+        function captureWebView() {
+            showToast("画面をキャプチャ中...");
+            
+            // html2canvasライブラリを使用してコンテナを画像化
+            html2canvas(webViewContainer).then(canvas => {
+                const imgDataUrl = canvas.toDataURL("image/png");
+                
+                // アルバム配列（DOM）の先頭に追加 (store.images.insert(..., at: 0))
+                const div = document.createElement('div');
+                div.className = 'grid-item';
+                const img = document.createElement('img');
+                img.src = imgDataUrl;
+                div.appendChild(img);
+                photoGrid.insertBefore(div, photoGrid.firstChild);
+
+                showToast("📸 スクショをアルバムに保存しました！");
+                
+                // Webブラウザから端末のカメラロールに直接自動保存は不可能なため、
+                // 代替として画像を長押しして保存できるようにするか、ダウンロードリンクを用意します。
+                triggerDownload(imgDataUrl);
             });
         }
 
-        // 📸 QRコードスキャン停止
-        function stopScanner() {
-            if (html5QrCode && html5QrCode.isScanning) {
-                html5QrCode.stop().then(() => {
-                    scannerContainer.classList.add('hidden');
-                    startScanBtn.classList.remove('hidden');
-                }).catch(err => {
-                    console.error("スキャナー停止エラー: ", err);
-                });
-            } else {
-                scannerContainer.classList.add('hidden');
-                startScanBtn.classList.remove('hidden');
+        function triggerDownload(dataUrl) {
+            const a = document.createElement('a');
+            a.href = dataUrl;
+            a.download = `screenshot_${Date.now()}.png`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        // --- 4. タブ切り替え処理 (TabViewの移植) ---
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-item').forEach(el => el.classList.remove('active'));
+
+            if (tabName === 'scanner') {
+                document.getElementById('tab-scanner').classList.add('active');
+                document.querySelectorAll('.tab-item')[0].classList.add('active');
+                // スキャナーに戻った時にWebViewを閉じてカメラを再起動
+                webViewContainer.style.display = 'none';
+                scannerView.style.display = 'block';
+                startCamera();
+            } else if (tabName === 'album') {
+                document.getElementById('tab-album').classList.add('active');
+                document.querySelectorAll('.tab-item')[1].classList.add('active');
+                stopCamera();
             }
         }
 
-        // タブの切り替え処理
-        function switchTab(tabIndex) {
-            stopScanner();
-
-            if (tabIndex === 0) {
-                quizTab.classList.add('active');
-                albumTab.classList.remove('active');
-                navQuiz.classList.remove('text-gray-400');
-                navQuiz.classList.add('text-blue-600');
-                navAlbum.classList.remove('text-blue-600');
-                navAlbum.classList.add('text-gray-400');
-            } else {
-                quizTab.classList.remove('active');
-                albumTab.classList.add('active');
-                navQuiz.classList.remove('text-blue-600');
-                navQuiz.classList.add('text-gray-400');
-                navAlbum.classList.remove('text-gray-400');
-                navAlbum.classList.add('text-blue-600');
-                renderAlbum(); // アルバム画面の再描画
-            }
+        function showToast(message) {
+            toast.innerText = message;
+            toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, 2500);
         }
 
-        // 🚀 タッチデバイス対応：確実に動作するダブルタップジェスチャー判定
-        let lastTapTime = 0;
-        
-        // スマホなどのタッチ端末用 (ブラウザズームを完全に抑制して検知)
-        quizImage.addEventListener('touchstart', function(e) {
-            const currentTime = new Date().getTime();
-            const tapLength = currentTime - lastTapTime;
-            
-            if (tapLength < 300 && tapLength > 0) {
-                // ダブルタップ検出に成功
-                triggerTapAnimation();
-                addToAlbum();
-                e.preventDefault(); // Safari等のブラウザ標準のズーム動作を完全に防ぐ
-            }
-            lastTapTime = currentTime;
-        }, { passive: false });
-
-        // PC（マウス操作）用のダブルクリック判定
-        quizImage.addEventListener('dblclick', function(e) {
-            triggerTapAnimation();
-            addToAlbum();
-            e.preventDefault();
-        });
-
-        // 保存時に画像が軽く弾むようなアニメーションフィードバックを追加
-        function triggerTapAnimation() {
-            quizImage.classList.add('scale-90');
-            setTimeout(() => {
-                quizImage.classList.remove('scale-90');
-            }, 120);
-        }
-
-        // アルバムに画像を追加する処理
-        function addToAlbum() {
-            const currentSrc = quizImage.src;
-            
-            if (!currentSrc || currentSrc === window.location.href) {
-                return;
-            }
-            
-            // アルバムに画像URLを追加
-            savedItems.push(currentSrc);
-            
-            // ローカルストレージにデータを即座に保存
-            localStorage.setItem('my_quiz_album', JSON.stringify(savedItems));
-            
-            // トースト通知を表示
-            showToastMessage();
-        }
-
-        // トースト通知のアニメーション制御
-        function showToastMessage() {
-            toast.classList.remove('opacity-0', 'translate-y-2');
-            toast.classList.add('opacity-100', 'translate-y-0');
-            
-            setTimeout(() => {
-                toast.classList.remove('opacity-100', 'translate-y-0');
-                toast.classList.add('opacity-0', 'translate-y-2');
-            }, 2000);
-        }
-
-        // アルバム表示の更新処理
-        function renderAlbum() {
-            if (savedItems.length === 0) {
-                albumEmpty.style.display = 'flex';
-                albumGrid.classList.add('hidden');
-                albumGrid.classList.remove('grid');
-                clearAlbumBtn.classList.add('hidden');
-            } else {
-                albumEmpty.style.display = 'none';
-                albumGrid.classList.remove('hidden');
-                albumGrid.classList.add('grid');
-                clearAlbumBtn.classList.remove('hidden');
-                
-                albumGrid.innerHTML = '';
-                
-                savedItems.forEach((src, index) => {
-                    const imgContainer = document.createElement('div');
-                    imgContainer.className = "relative aspect-square w-full overflow-hidden rounded-lg bg-gray-100 border border-gray-200 shadow-sm group";
-                    
-                    const img = document.createElement('img');
-                    img.src = src;
-                    img.alt = `保存した画像 ${index + 1}`;
-                    img.className = "w-full h-full object-cover transform active:scale-95 transition-transform duration-150";
-                    
-                    // 削除用ミニボタン
-                    const deleteBtn = document.createElement('button');
-                    deleteBtn.innerHTML = '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i>';
-                    deleteBtn.className = "absolute top-1 right-1 bg-red-500/80 text-white p-1.5 rounded-full opacity-80 hover:opacity-100 transition duration-150 shadow";
-                    deleteBtn.onclick = function(e) {
-                        e.stopPropagation(); 
-                        deleteItem(index);
-                    };
-
-                    imgContainer.appendChild(img);
-                    imgContainer.appendChild(deleteBtn);
-                    albumGrid.appendChild(imgContainer);
-                });
-
-                lucide.createIcons();
-            }
-        }
-
-        // アルバムから特定の画像を削除
-        function deleteItem(index) {
-            savedItems.splice(index, 1);
-            localStorage.setItem('my_quiz_album', JSON.stringify(savedItems));
-            renderAlbum();
-        }
-
-        // アルバムの全件クリア
-        function clearAllAlbum() {
-            if (confirm("アルバムのすべての画像を削除してもよろしいですか？")) {
-                savedItems = [];
-                localStorage.removeItem('my_quiz_album');
-                renderAlbum();
-            }
-        }
+        // 初回起動
+        window.onload = () => {
+            startCamera();
+        };
     </script>
 </body>
 </html>
