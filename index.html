@@ -71,11 +71,44 @@
         /* スキャナー */
         #scanner-view {
             background: #000;
+            position: relative;
         }
         #video-preview {
             width: 100%;
             height: 100%;
             object-fit: cover;
+            display: none; /* 初期は非表示 */
+        }
+        /* カメラ起動用プレースホルダー */
+        .camera-placeholder {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            gap: 16px;
+        }
+        .camera-start-btn {
+            background-color: var(--ios-blue);
+            color: white;
+            border: none;
+            padding: 14px 28px;
+            border-radius: 24px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,122,255,0.4);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .camera-start-btn:active {
+            opacity: 0.8;
         }
         /* WebViewコンテナ */
         #web-view-container {
@@ -209,9 +242,15 @@
         <!-- タブ1: スキャナー / WEB表示 -->
         <div id="tab-scanner" class="tab-content active">
             <div id="scanner-view" style="width:100%; height:100%;">
+                <!-- カメラ未起動時のプレースホルダー -->
+                <div id="camera-placeholder" class="camera-placeholder">
+                    <span style="font-size: 48px;">📷</span>
+                    <button class="camera-start-btn" onclick="startCamera()">カメラを起動する</button>
+                </div>
                 <video id="video-preview" autoplay playsinline muted></video>
             </div>
             <div id="web-view-container" style="display: none;">
+                <!-- ここをタップしても何も起きない（ドラッグ機能削除） -->
                 <iframe id="web-frame" src=""></iframe>
             </div>
         </div>
@@ -246,6 +285,7 @@
     <script>
         const video = document.getElementById('video-preview');
         const scannerView = document.getElementById('scanner-view');
+        const cameraPlaceholder = document.getElementById('camera-placeholder');
         const webViewContainer = document.getElementById('web-view-container');
         const webFrame = document.getElementById('web-frame');
         const toast = document.getElementById('toast');
@@ -259,7 +299,7 @@
 
         window.onload = () => { 
             loadSavedImages();
-            startCamera(); 
+            // 自動でのカメラ起動（startCamera()）は行わない
         };
 
         // --- 1. カメラ & QRスキャン処理 ---
@@ -273,18 +313,32 @@
                 video.srcObject = streamRef;
                 video.setAttribute("playsinline", true);
                 video.setAttribute("webkit-playsinline", true);
+                
+                // カメラが正常に準備できたらプレースホルダーを隠してビデオを表示
+                video.style.display = 'block';
+                cameraPlaceholder.style.display = 'none';
+
                 video.addEventListener('loadedmetadata', () => {
                     video.play();
                     setTimeout(() => { scanAnimationId = requestAnimationFrame(tick); }, 300);
                 });
             } catch (err) {
                 showToast("カメラの起動に失敗しました。");
+                resetScannerUI();
             }
         }
 
         function stopCamera() {
             if (scanAnimationId) cancelAnimationFrame(scanAnimationId);
             if (streamRef) streamRef.getTracks().forEach(track => track.stop());
+            streamRef = null;
+        }
+
+        // スキャナー画面の表示状態を初期（ボタン待ち）に戻す
+        function resetScannerUI() {
+            video.style.display = 'none';
+            cameraPlaceholder.style.display = 'flex';
+            video.srcObject = null;
         }
 
         function tick() {
@@ -333,7 +387,6 @@
             let pressTimer;
             let isLongPress = false;
 
-            // タッチイベントでタップと長押しを明確に分離
             div.addEventListener('touchstart', (e) => {
                 isLongPress = false;
                 pressTimer = window.setTimeout(() => { 
@@ -344,7 +397,6 @@
 
             div.addEventListener('touchend', () => {
                 clearTimeout(pressTimer);
-                // 長押し判定にならなかった場合のみ、全体表示ポップアップを開く
                 if (!isLongPress) {
                     openLightbox(base64Data);
                 }
@@ -352,7 +404,6 @@
 
             div.addEventListener('touchmove', () => clearTimeout(pressTimer));
             
-            // PCブラウザ用のクリック/マウス制御
             div.addEventListener('mousedown', () => {
                 isLongPress = false;
                 pressTimer = window.setTimeout(() => { isLongPress = true; confirmDelete(id, div); }, 800);
@@ -398,7 +449,7 @@
         function closeLightbox() {
             lightbox.classList.remove('show');
             setTimeout(() => {
-                lightboxImg.src = ""; // アニメーション終了後にソースをクリア
+                lightboxImg.src = "";
             }, 200);
         }
 
@@ -457,9 +508,11 @@
             if (tabName === 'scanner') {
                 document.getElementById('tab-scanner').classList.add('active');
                 document.querySelectorAll('.tab-item')[0].classList.add('active');
+                
+                // タブ切り替え時は初期状態（ボタン待ち画面）を表示する
                 webViewContainer.style.display = 'none';
                 scannerView.style.display = 'block';
-                startCamera();
+                resetScannerUI();
             } else if (tabName === 'album') {
                 document.getElementById('tab-album').classList.add('active');
                 document.querySelectorAll('.tab-item')[1].classList.add('active');
