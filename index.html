@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>クイズ＆アルバムアプリ</title>
+    <!-- Tailwind CSS (スタイリング用) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons (アイコン用) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* モバイルでのダブルタップズームを無効化して、ダブルタップ操作を快適にする */
+        .double-tap-target {
+            touch-action: manipulation;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        /* タブ切り替えのトランジション用 */
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: flex;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans min-h-screen flex flex-col justify-between">
+
+    <!-- メインコンテンツエリア -->
+    <main class="flex-1 flex flex-col items-center justify-start p-4 w-full max-w-md mx-auto bg-white shadow-md overflow-y-auto pb-24">
+        
+        <!-- MARK: - クイズ画面 (タブ0) -->
+        <section id="quiz-tab" class="tab-content active flex-col items-center w-full space-y-6 pt-6">
+            <h2 class="text-2xl font-bold text-gray-800 text-center">設問：「今日」の英語は？</h2>
+            
+            <!-- 3つの選択肢ボタン -->
+            <div class="flex flex-col space-y-3 w-full px-4">
+                <button onclick="checkAnswer('yesterday')" class="w-full py-3.5 px-4 text-blue-600 font-semibold border-2 border-blue-500 rounded-xl hover:bg-blue-50 active:bg-blue-100 transition duration-200 text-center">
+                    yesterday
+                </button>
+                <button onclick="checkAnswer('today')" class="w-full py-3.5 px-4 text-blue-600 font-semibold border-2 border-blue-500 rounded-xl hover:bg-blue-50 active:bg-blue-100 transition duration-200 text-center">
+                    today
+                </button>
+                <button onclick="checkAnswer('tomorrow')" class="w-full py-3.5 px-4 text-blue-600 font-semibold border-2 border-blue-500 rounded-xl hover:bg-blue-50 active:bg-blue-100 transition duration-200 text-center">
+                    tomorrow
+                </button>
+            </div>
+
+            <!-- クイズ結果の判定メッセージ -->
+            <div id="quiz-message" class="text-lg font-bold text-center h-12 px-4 flex items-center justify-center transition-colors duration-200">
+                <!-- JavaScriptで動的に挿入 -->
+            </div>
+
+            <!-- 正解時に表示される画像エリア -->
+            <div id="correct-image-area" class="hidden flex-col items-center space-y-2 w-full px-4 transition-all duration-300">
+                <!-- 
+                  💡 GitHubで公開する際は、同じリポジトリ内に「image1.png」などの画像ファイルを配置してください。
+                  ここではプレースホルダー画像としてダミー画像を初期設定にしていますが、自由に書き換え可能です。
+                -->
+                <img id="quiz-image" src="image1.png" onerror="this.src='https://images.unsplash.com/photo-1506784983877-45594efa4cbe?auto=format&fit=crop&w=600&q=80'" alt="正解画像" class="double-tap-target max-h-[220px] w-auto object-contain rounded-xl shadow-lg border border-gray-200 cursor-pointer active:scale-95 transition-transform duration-100">
+                
+                <span class="text-xs text-gray-500 flex items-center gap-1">
+                    <i data-lucide="info" class="w-3.5 h-3.5"></i> 画像をダブルタップしてアルバムに追加
+                </span>
+            </div>
+        </section>
+
+        <!-- MARK: - アルバム画面 (タブ1) -->
+        <section id="album-tab" class="tab-content flex-col w-full pt-4">
+            <h2 class="text-2xl font-bold text-gray-800 px-4 mb-4">アルバム</h2>
+            
+            <!-- 空状態の表示 -->
+            <div id="album-empty" class="flex flex-col items-center justify-center space-y-4 py-16 px-6 text-center">
+                <div class="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center text-gray-400">
+                    <i data-lucide="image" class="w-10 h-10"></i>
+                </div>
+                <h3 class="text-lg font-bold text-gray-700">アルバムは空です</h3>
+                <p class="text-sm text-gray-500 leading-relaxed">
+                    クイズに正解し、表示された画像をダブルタップすると、ここに追加されます。
+                </p>
+            </div>
+
+            <!-- 画像がある場合のグリッド表示 -->
+            <div id="album-grid" class="hidden grid-cols-3 gap-2 px-4 pb-6">
+                <!-- JavaScriptで動的にアイテム（img）が挿入されます -->
+            </div>
+        </section>
+
+    </main>
+
+    <!-- 画面下部に追加通知トーストを表示 -->
+    <div id="toast" class="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-black/85 text-white text-sm py-2.5 px-5 rounded-full shadow-lg pointer-events-none opacity-0 transition-all duration-300 transform translate-y-2 flex items-center gap-2">
+        <i data-lucide="check-circle" class="w-4 h-4 text-green-400"></i>
+        <span>アルバムタブに画像を追加しました！</span>
+    </div>
+
+    <!-- MARK: - フッターナビゲーション (タブバー) -->
+    <nav class="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-gray-200 flex justify-around items-center h-16 shadow-lg z-40">
+        <button onclick="switchTab(0)" id="nav-quiz" class="flex flex-col items-center justify-center w-full h-full text-blue-600 transition-colors duration-200">
+            <i data-lucide="help-circle" class="w-6 h-6"></i>
+            <span class="text-xs mt-1 font-medium">クイズ</span>
+        </button>
+        <button onclick="switchTab(1)" id="nav-album" class="flex flex-col items-center justify-center w-full h-full text-gray-400 transition-colors duration-200">
+            <i data-lucide="image" class="w-6 h-6"></i>
+            <span class="text-xs mt-1 font-medium">アルバム</span>
+        </button>
+    </nav>
+
+    <!-- MARK: - スクリプト (ロジック制御) -->
+    <script>
+        // Lucideアイコンの初期化
+        lucide.createIcons();
+
+        // 状態管理
+        let savedItems = []; // アルバムに保存された画像パスの配列
+        let lastTap = 0; // ダブルタップ検出用テンポラリ変数
+        const imageName = "image1.png"; // 使用する画像ファイル名
+
+        // DOMの参照
+        const quizTab = document.getElementById('quiz-tab');
+        const albumTab = document.getElementById('album-tab');
+        const navQuiz = document.getElementById('nav-quiz');
+        const navAlbum = document.getElementById('nav-album');
+        const quizMessage = document.getElementById('quiz-message');
+        const correctImageArea = document.getElementById('correct-image-area');
+        const quizImage = document.getElementById('quiz-image');
+        const albumEmpty = document.getElementById('album-empty');
+        const albumGrid = document.getElementById('album-grid');
+        const toast = document.getElementById('toast');
+
+        // タブ切り替え処理
+        function switchTab(tabIndex) {
+            if (tabIndex === 0) {
+                // クイズタブをアクティブに
+                quizTab.classList.add('active');
+                albumTab.classList.remove('active');
+                navQuiz.classList.remove('text-gray-400');
+                navQuiz.classList.add('text-blue-600');
+                navAlbum.classList.remove('text-blue-600');
+                navAlbum.classList.add('text-gray-400');
+            } else {
+                // アルバムタブをアクティブに
+                quizTab.classList.remove('active');
+                albumTab.classList.add('active');
+                navQuiz.classList.remove('text-blue-600');
+                navQuiz.classList.add('text-gray-400');
+                navAlbum.classList.remove('text-gray-400');
+                navAlbum.classList.add('text-blue-600');
+                renderAlbum(); // アルバム画面の再描画
+            }
+        }
+
+        // クイズの答え合わせ
+        function checkAnswer(chosen) {
+            if (chosen === 'today') {
+                quizMessage.textContent = "正解！🎉";
+                quizMessage.className = "text-lg font-bold text-center h-12 px-4 flex items-center justify-center text-green-600";
+                correctImageArea.classList.remove('hidden');
+                correctImageArea.classList.add('flex');
+            } else {
+                quizMessage.textContent = "不正解...😢 もう一度考えてみよう！";
+                quizMessage.className = "text-lg font-bold text-center h-12 px-4 flex items-center justify-center text-red-500";
+                correctImageArea.classList.add('hidden');
+                correctImageArea.classList.remove('flex');
+            }
+        }
+
+        // ダブルタップのイベント検知
+        quizImage.addEventListener('click', function(e) {
+            const currentTime = new Date().getTime();
+            const tapLength = currentTime - lastTap;
+            
+            // 300ミリ秒以内の連続クリックをダブルタップと判定
+            if (tapLength < 300 && tapLength > 0) {
+                addToAlbum();
+                e.preventDefault(); // モバイルでのズームを防ぐ
+            }
+            lastTap = currentTime;
+        });
+
+        // アルバムに画像を追加する処理
+        function addToAlbum() {
+            // 現在表示されている画像のソースパスを取得して配列に追加
+            const currentSrc = quizImage.src;
+            savedItems.push(currentSrc);
+            
+            // トースト通知を表示
+            showToastMessage();
+        }
+
+        // トースト通知のアニメーション制御
+        function showToastMessage() {
+            toast.classList.remove('opacity-0', 'translate-y-2');
+            toast.classList.add('opacity-100', 'translate-y-0');
+            
+            setTimeout(() => {
+                toast.classList.remove('opacity-100', 'translate-y-0');
+                toast.classList.add('opacity-0', 'translate-y-2');
+            }, 2000);
+        }
+
+        // アルバム表示の更新処理
+        function renderAlbum() {
+            if (savedItems.length === 0) {
+                albumEmpty.style.display = 'flex';
+                albumGrid.classList.add('hidden');
+                albumGrid.classList.remove('grid');
+            } else {
+                albumEmpty.style.display = 'none';
+                albumGrid.classList.remove('hidden');
+                albumGrid.classList.add('grid');
+                
+                // グリッドの中身を一度クリア
+                albumGrid.innerHTML = '';
+                
+                // 保存されている画像をループしてグリッドに追加
+                savedItems.forEach(src => {
+                    const imgContainer = document.createElement('div');
+                    imgContainer.className = "aspect-square w-full overflow-hidden rounded-lg bg-gray-100 border border-gray-200 shadow-sm";
+                    
+                    const img = document.createElement('img');
+                    img.src = src;
+                    img.alt = "保存した画像";
+                    img.className = "w-full h-full object-cover transform active:scale-95 transition-transform duration-150";
+                    
+                    imgContainer.appendChild(img);
+                    albumGrid.appendChild(imgContainer);
+                });
+            }
+        }
+    </script>
+</body>
+</html>
