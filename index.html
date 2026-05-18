@@ -89,7 +89,7 @@
             height: 100%;
             border: none;
         }
-        /* 透明な長押し検知レイヤー */
+        /* 【重要】長押し検知レイヤー：初期状態は下のフォームを操作できるように透過させる */
         #longpress-layer {
             position: absolute;
             top: 0;
@@ -97,6 +97,7 @@
             width: 100%;
             height: 100%;
             z-index: 10;
+            pointer-events: none; 
         }
         /* アルバム */
         #album-view {
@@ -149,8 +150,8 @@
             <div id="scanner-view" style="width:100%; height:100%;">
                 <video id="video-preview" autoplay playsinline muted></video>
             </div>
+            <!-- フォームを表示するエリア（親要素でタッチイベントを監視） -->
             <div id="web-view-container" style="display: none;">
-                <!-- 長押しイベントを受け取るオーバーレイ層（クリックは下に透過させる） -->
                 <div id="longpress-layer"></div>
                 <iframe id="web-frame" src=""></iframe>
             </div>
@@ -247,16 +248,12 @@
             webFrame.src = url;
         }
 
-        // --- 3. 画像自動検知 & 長押し保存処理 ---
+        // --- 3. 操作を邪魔しない長押し保存処理 ---
         let pressTimer;
 
-        // 長押しが成立した時の処理
         function handleLongPress() {
             try {
-                // iframe内のドキュメントを取得
                 const iframeDocument = webFrame.contentDocument || webFrame.contentWindow.document;
-                
-                // Googleフォーム内のすべての画像(imgタグ)を取得
                 const images = iframeDocument.getElementsByTagName('img');
                 
                 if (images.length === 0) {
@@ -265,9 +262,6 @@
                 }
 
                 showToast("画像を検出中...");
-
-                // フォームに表示されている「最後の画像」を正解画像とみなして抽出
-                // （Googleフォームはヘッダーや回答後グラフィックを順に生成するため、通常は最後のimgが該当します）
                 const targetImg = images[images.length - 1];
                 const imageUrl = targetImg.src;
 
@@ -277,15 +271,12 @@
                     showToast("画像のURLを取得できませんでした。");
                 }
             } catch (error) {
-                // クロスドメイン制限に引っかかった場合のセーフティ
                 console.error(error);
                 showToast("セキュリティ制限により画像を直接抽出できません。");
             }
         }
 
-        // 画像のDLおよびアルバムへの追加処理
         function saveImageToAlbum(url) {
-            // URLから画像データを直接取得してBlob形式にする（画面全体のスクショを回避）
             fetch(url)
                 .then(response => response.blob())
                 .then(blob => {
@@ -293,7 +284,6 @@
                     reader.onloadend = function() {
                         const base64data = reader.result;
                         
-                        // アルバム（UI）の先頭に追加
                         const div = document.createElement('div');
                         div.className = 'grid-item';
                         const img = document.createElement('img');
@@ -303,7 +293,6 @@
 
                         showToast("📸 正解画像をアルバムに保存しました！");
 
-                        // 同時に端末のカメラロール（写真フォルダ）へダウンロード保存をトリガー
                         const a = document.createElement('a');
                         a.href = base64data;
                         a.download = `correct_answer_${Date.now()}.png`;
@@ -319,16 +308,20 @@
                 });
         }
 
-        // 各種長押し判定イベントリスナー (1秒ホールド)
-        longPressLayer.addEventListener('touchstart', () => {
+        // 重ねた透明レイヤーではなく、コンテナ全体のタッチイベントを監視する（操作を阻害しない）
+        webViewContainer.addEventListener('touchstart', (e) => {
+            // 1秒以上押し続けたら長押しと判定
             pressTimer = window.setTimeout(() => { handleLongPress(); }, 1000); 
-        });
-        longPressLayer.addEventListener('touchend', () => clearTimeout(pressTimer));
-        longPressLayer.addEventListener('touchmove', () => clearTimeout(pressTimer));
-        longPressLayer.addEventListener('mousedown', () => {
+        }, { passive: true });
+
+        webViewContainer.addEventListener('touchend', () => clearTimeout(pressTimer), { passive: true });
+        webViewContainer.addEventListener('touchmove', () => clearTimeout(pressTimer), { passive: true });
+        
+        // PCのデバッグ用
+        webViewContainer.addEventListener('mousedown', () => {
             pressTimer = window.setTimeout(() => { handleLongPress(); }, 1000);
         });
-        longPressLayer.addEventListener('mouseup', () => clearTimeout(pressTimer));
+        webViewContainer.addEventListener('mouseup', () => clearTimeout(pressTimer));
 
         // --- 4. タブ切り替え処理 ---
         function switchTab(tabName) {
