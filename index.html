@@ -40,7 +40,7 @@
             <!-- 未回答（初期状態）の表示エリア -->
             <div id="unsolved-area" class="w-full flex flex-col items-center space-y-5">
                 <p class="text-sm text-gray-600 text-center px-4 leading-relaxed">
-                    下のQRコードをスキャンするか、<b>アプリのカメラ</b>で問題のQRコードを読み取ってGoogle Formのクイズに挑戦してください。<br>
+                    アプリのカメラで問題のQRコードを読み取ってGoogle Formのクイズに挑戦してください。<br>
                     正解すると、完了画面にこのアプリへ戻る特別なリンクが表示されます。
                 </p>
 
@@ -66,17 +66,11 @@
                     </div>
                 </div>
 
-                <!-- QRコード表示エリア (APIで自動生成) -->
-                <div class="bg-white p-4 rounded-2xl shadow-md border border-gray-200 flex flex-col items-center space-y-2">
-                    <img id="qr-image" src="" alt="Google Form QR Code" class="w-40 h-40">
-                    <span class="text-xs text-gray-400">QRコードをスキャンしてクイズへ</span>
-                </div>
-
-                <!-- 直接フォームを開くボタン -->
+                <!-- 直接フォームを開くボタン（フォールバック用） -->
                 <div class="w-full px-4">
                     <a id="form-link-btn" href="#" target="_blank" class="block w-full py-3.5 px-4 text-center bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl shadow-md transition duration-200 flex items-center justify-center gap-2">
                         <i data-lucide="external-link" class="w-5 h-5"></i>
-                        Google Formでクイズを解く
+                        直接Google Formを開いてクイズを解く
                     </a>
                 </div>
 
@@ -197,7 +191,6 @@
         const albumEmpty = document.getElementById('album-empty');
         const albumGrid = document.getElementById('album-grid');
         const toast = document.getElementById('toast');
-        const qrImage = document.getElementById('qr-image');
         const formLinkBtn = document.getElementById('form-link-btn');
         const setupCorrectUrl = document.getElementById('setup-correct-url');
 
@@ -217,10 +210,8 @@
             const basePageUrl = window.location.href.split('?')[0];
             setupCorrectUrl.textContent = basePageUrl + "?status=correct";
 
-            // Google Form への遷移ボタン＆QRコードの設定
+            // Google Form への遷移ボタンの設定
             formLinkBtn.href = googleFormUrl;
-            // QRコード生成APIを利用してGoogle FormのQRコードを生成・表示
-            qrImage.src = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(googleFormUrl)}`;
 
             // URLパラメータをチェック
             checkUrlParameters();
