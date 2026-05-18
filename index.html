@@ -217,7 +217,9 @@
 
         let streamRef = null;
         let scanAnimationId = null;
-        let lastPastedItem = null;
+
+        // 【修正】前回ペーストした「画像データ（Base64文字列）」を直接保持する変数に変更
+        let lastPastedData = null;
 
         window.onload = () => { 
             loadSavedImages();
@@ -330,10 +332,8 @@
             }
         }
 
-        // 【改良】権限チェックを挟み、ポップアップの頻度を下げるように試みる処理
         async function requestClipboardPermissionAndPaste() {
             try {
-                // ブラウザがPermission APIに対応しているか確認
                 if (navigator.permissions && navigator.permissions.query) {
                     const permission = await navigator.permissions.query({ name: 'clipboard-read', allowWithoutGesture: false });
                     if (permission.state === 'denied') {
@@ -341,10 +341,8 @@
                         return;
                     }
                 }
-                // ペースト処理の実行へ
                 await pasteFromClipboard();
             } catch (err) {
-                // Permission API非対応ブラウザ（主にiOS Safari）は直接実行を試みる
                 await pasteFromClipboard();
             }
         }
@@ -355,18 +353,22 @@
                 for (const item of clipboardItems) {
                     for (const type of item.types) {
                         if (type.startsWith('image/')) {
-                            
-                            if (lastPastedItem === item) {
-                                showToast("⚠️ このコピーは既に一度ペーストされています。");
-                                return;
-                            }
-
                             const blob = await item.getType(type);
                             const reader = new FileReader();
                             reader.onloadend = () => {
-                                addImageToGrid(reader.result);
+                                const currentData = reader.result;
+
+                                // 【確実な重複防止】今回の画像データが、前回ペースト成功データと1文字違わず同じか検証
+                                if (lastPastedData === currentData) {
+                                    showToast("⚠️ このコピーは既に一度ペーストされています。");
+                                    return;
+                                }
+
+                                addImageToGrid(currentData);
                                 showToast("📸 アルバムに保存しました！");
-                                lastPastedItem = item; 
+                                
+                                // 成功したら画像データそのものを記憶してロック
+                                lastPastedData = currentData; 
                             };
                             reader.readAsDataURL(blob);
                             return;
