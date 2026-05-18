@@ -188,97 +188,123 @@
         let streamRef = null;
         let scanAnimationId = null;
 
-        // --- 1. カメラ・QRコードスキャン処理 (AVCaptureMetadataOutputの移植) ---
+        // --- 1. カメラ・QRコードスキャン処理（解像度とピントの最適化版） ---
         async function startCamera() {
+            stopCamera();
+
+            const constraints = {
+                video: {
+                    facingMode: "environment", // 背面カメラ
+                    width: { ideal: 1280 },    // 認識率を高める720p解像度
+                    height: { ideal: 720 },
+                    focusMode: "continuous"    // オートフォーカス
+                },
+                audio: false
+            };
+
             try {
-                streamRef = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                streamRef = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = streamRef;
                 video.setAttribute("playsinline", true);
-                video.play();
-                scanAnimationId = requestAnimationFrame(tick);
+                video.setAttribute("webkit-playsinline", true);
+                
+                video.addEventListener('loadedmetadata', () => {
+                    video.play();
+                    setTimeout(() => {
+                        scanAnimationId = requestAnimationFrame(tick);
+                    }, 300);
+                });
             } catch (err) {
-                showToast("カメラの起動に失敗しました。権限を許可してください。");
+                console.error("Camera error:", err);
+                showToast("カメラの起動に失敗しました。HTTPS環境や権限を確認してください。");
             }
         }
 
         function stopCamera() {
+            if (scanAnimationId) {
+                cancelAnimationFrame(scanAnimationId);
+                scanAnimationId = null;
+            }
             if (streamRef) {
                 streamRef.getTracks().forEach(track => track.stop());
+                streamRef = null;
             }
-            cancelAnimationFrame(scanAnimationId);
         }
 
         function tick() {
-            if (video.readyState === video.HAVE_CURRENT_DATA) {
+            if (!streamRef || video.paused || video.ended) {
+                scanAnimationId = requestAnimationFrame(tick);
+                return;
+            }
+
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
                 const canvas = document.createElement("canvas");
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
+                
                 const ctx = canvas.getContext("2d");
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
                 const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                 
-                // jsQRライブラリでQRコードを解析
-                const code = jsQR(imageData.data, imageData.width, imageData.height, {
-                    inversionAttempts: "dontInvert",
-                });
+                try {
+                    // jsQRで解析を実行
+                    const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                        inversionAttempts: "dontInvert",
+                    });
 
-                if (code) {
-                    showToast("QRコードを検出しました");
-                    stopCamera();
-                    openWebView(code.data);
-                    return;
+                    if (code && code.data) {
+                        showToast("🎉 QRコードを検出しました！");
+                        stopCamera();
+                        openWebView(code.data);
+                        return; 
+                    }
+                } catch (e) {
+                    console.error("jsQR error:", e);
                 }
             }
             scanAnimationId = requestAnimationFrame(tick);
         }
 
-        // --- 2. WEBビュー処理 & ロングプレス (WKWebView + UILongPressGesture) ---
+        // --- 2. WEBビュー処理 & ロングプレス ---
         function openWebView(url) {
             scannerView.style.display = 'none';
             webViewContainer.style.display = 'block';
-            
-            // X-Frame-Options回避のため、デモ用に直接入れられるURLか確認
-            // ※本物のGoogleフォームはセキュリティ上iframe内表示を拒否することが多いため、
-            // 実際はURLを表示するか、プロキシを通す必要があります。
             webFrame.src = url;
         }
 
-        // ロングプレス（長押し）のシミュレーション (1秒押し)
+        // 1秒間の長押し判定（iOSのUILongPressGesture風）
         let pressTimer;
         longPressLayer.addEventListener('touchstart', (e) => {
-            pressTimer = window.setTimeout(() => {
-                captureWebView();
-            }, 1000); 
+            pressTimer = window.setTimeout(() => { captureWebView(); }, 1000); 
         });
-
         longPressLayer.addEventListener('touchend', () => clearTimeout(pressTimer));
         longPressLayer.addEventListener('touchmove', () => clearTimeout(pressTimer));
-        // PCのテスト用（クリック長押し）
+        
+        // PCデバッグ用のマウス操作対応
         longPressLayer.addEventListener('mousedown', () => {
             pressTimer = window.setTimeout(() => captureWebView(), 1000);
         });
         longPressLayer.addEventListener('mouseup', () => clearTimeout(pressTimer));
 
-        // --- 3. キャプチャ・保存処理 (UIGraphicsImageRendererの移植) ---
+        // --- 3. キャプチャ・保存処理（UIGraphicsImageRendererの代替） ---
         function captureWebView() {
             showToast("画面をキャプチャ中...");
             
-            // html2canvasライブラリを使用してコンテナを画像化
             html2canvas(webViewContainer).then(canvas => {
                 const imgDataUrl = canvas.toDataURL("image/png");
                 
-                // アルバム配列（DOM）の先頭に追加 (store.images.insert(..., at: 0))
+                // アルバムの先頭にグリッドアイテムを追加
                 const div = document.createElement('div');
                 div.className = 'grid-item';
                 const img = document.createElement('img');
                 img.src = imgDataUrl;
                 div.appendChild(img);
                 photoGrid.insertBefore(div, photoGrid.firstChild);
-
+                
                 showToast("📸 スクショをアルバムに保存しました！");
                 
-                // Webブラウザから端末のカメラロールに直接自動保存は不可能なため、
-                // 代替として画像を長押しして保存できるようにするか、ダウンロードリンクを用意します。
+                // ブラウザ制限を回避し、端末に画像保存を促すダウンロード処理
                 triggerDownload(imgDataUrl);
             });
         }
@@ -292,7 +318,7 @@
             document.body.removeChild(a);
         }
 
-        // --- 4. タブ切り替え処理 (TabViewの移植) ---
+        // --- 4. タブ切り替え処理（TabViewの代替） ---
         function switchTab(tabName) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.tab-item').forEach(el => el.classList.remove('active'));
@@ -300,7 +326,6 @@
             if (tabName === 'scanner') {
                 document.getElementById('tab-scanner').classList.add('active');
                 document.querySelectorAll('.tab-item')[0].classList.add('active');
-                // スキャナーに戻った時にWebViewを閉じてカメラを再起動
                 webViewContainer.style.display = 'none';
                 scannerView.style.display = 'block';
                 startCamera();
@@ -317,7 +342,7 @@
             setTimeout(() => { toast.style.display = 'none'; }, 2500);
         }
 
-        // 初回起動
+        // ページロード時にカメラを起動
         window.onload = () => {
             startCamera();
         };
