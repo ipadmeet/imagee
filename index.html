@@ -225,7 +225,7 @@
             justify-content: center;
             align-items: center;
             opacity: 0;
-transition: opacity 0.2s ease-in-out;
+            transition: opacity 0.2s ease-in-out;
         }
         .lightbox.show {
             display: flex;
@@ -316,9 +316,8 @@ transition: opacity 0.2s ease-in-out;
         let streamRef = null;
         let scanAnimationId = null;
         
-        // 【重要】クリップボード制御用の変数
-        let lastPastedData = null;       // 直前に処理した画像データ
-        let isPastedCurrentCopy = false; // 現在クリップボードにある画像がペースト済みかどうかのフラグ
+        // 【重要】物理的なペースト可能回数の残弾カウント管理
+        let pasteTokenCount = 0; 
 
         window.onload = () => { 
             loadSavedImages();
@@ -327,6 +326,8 @@ transition: opacity 0.2s ease-in-out;
         // --- 1. カメラ & QRスキャン処理 ---
         async function startCamera() {
             stopCamera();
+            // 【重要】カメラを起動/リセットした＝新しい作業に入るため、ペースト権利を1回分付与
+            pasteTokenCount = 1;
             try {
                 streamRef = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 }, focusMode: "continuous" },
@@ -390,6 +391,8 @@ transition: opacity 0.2s ease-in-out;
             scannerView.style.display = 'none';
             webViewContainer.style.display = 'block';
             webFrame.src = url;
+            // 【重要】新しいフォームを開いた（＝ここから新しく撮影・コピーする）ので権利を1回分付与
+            pasteTokenCount = 1;
         }
 
         // --- 2. アルバム保存・管理ロジック ---
@@ -475,6 +478,12 @@ transition: opacity 0.2s ease-in-out;
 
         // --- 4. クリップボード・ペースト制御 ---
         async function requestClipboardPermissionAndPaste() {
+            // 【重要】クリップボードを読みに行く前に、JavaScript側で残弾数をチェックして先行ブロック
+            if (pasteTokenCount <= 0) {
+                showToast("⚠️ このコピーは保存済みです。Scannerタブで次の操作（撮影・コピー）をしてください。");
+                return;
+            }
+
             try {
                 if (navigator.permissions && navigator.permissions.query) {
                     const permission = await navigator.permissions.query({ name: 'clipboard-read', allowWithoutGesture: false });
@@ -500,24 +509,12 @@ transition: opacity 0.2s ease-in-out;
                             reader.onloadend = () => {
                                 const currentData = reader.result;
 
-                                // 【重要】前回の画像と異なるデータが入ってきた場合は、新しいコピーとみなしてリセット
-                                if (lastPastedData !== currentData) {
-                                    isPastedCurrentCopy = false;
-                                }
-
-                                // 【重要】現在のコピーがすでにペースト済みであれば処理を完全に弾く
-                                if (isPastedCurrentCopy) {
-                                    showToast("⚠️ このコピーはすでに1回ペーストされています。新しくコピーしてください。");
-                                    return;
-                                }
-
                                 // アルバムに追加
                                 addImageToGrid(currentData);
                                 showToast("📸 アルバムに保存しました！");
                                 
-                                // フラグの状態を更新（1つのコピーに対して1回のみにする）
-                                lastPastedData = currentData; 
-                                isPastedCurrentCopy = true; 
+                                // 【重要】保存が成功したら、即座に残弾トークンを0にして、次のリチャージまで完全に封印
+                                pasteTokenCount = 0; 
                             };
                             reader.readAsDataURL(blob);
                             return;
@@ -539,6 +536,9 @@ transition: opacity 0.2s ease-in-out;
                 document.getElementById('tab-scanner').classList.add('active');
                 document.querySelectorAll('.tab-item')[0].classList.add('active');
                 
+                // 【重要】フォーム（Scanner）画面側に戻った段階で、次のスクショ用のペースト権利を1回分付与する
+                pasteTokenCount = 1;
+
                 webViewContainer.style.display = 'none';
                 scannerView.style.display = 'block';
                 resetScannerUI();
