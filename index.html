@@ -18,14 +18,22 @@
             padding: 0;
             background-color: var(--ios-bg);
             height: 100vh;
+            /* iOS/iPadOSの環境変数に対応した高さ指定 */
+            height: -webkit-fill-available; 
             display: flex;
             flex-direction: column;
+            overflow: hidden;
+        }
+        html {
+            height: -webkit-fill-available;
             overflow: hidden;
         }
         .content-area {
             flex: 1;
             position: relative;
             overflow: hidden;
+            width: 100%;
+            height: 100%;
         }
         .tab-content {
             display: none;
@@ -34,6 +42,7 @@
             position: absolute;
             top: 0;
             left: 0;
+            overflow: hidden; /* 子要素のはみ出しを強制カット */
         }
         .tab-content.active {
             display: block;
@@ -49,6 +58,7 @@
             padding-bottom: env(safe-area-inset-bottom);
             position: relative;
             z-index: 100;
+            flex-shrink: 0; /* タブバーが絶対に潰れないように固定 */
         }
         .tab-item {
             flex: 1;
@@ -72,6 +82,8 @@
         #scanner-view {
             background: #000;
             position: relative;
+            width: 100%;
+            height: 100%;
         }
         #video-preview {
             width: 100%;
@@ -110,18 +122,26 @@
         .camera-start-btn:active {
             opacity: 0.8;
         }
-        /* WebViewコンテナ */
+        
+        /* 【重要】WebViewコンテナ（iPad/iOSバグ対策） */
         #web-view-container {
             width: 100%;
             height: 100%;
             background: #fff;
             position: relative;
+            overflow: auto; /* スクリプトや内包スクロールの受け皿 */
+            -webkit-overflow-scrolling: touch; /* スムーズスクロール */
         }
+        /* 【重要】iframe自身が親を突き破らないように厳格に制限 */
         #web-frame {
             width: 100%;
             height: 100%;
+            min-height: 100%;
+            max-height: 100%;
             border: none;
+            display: block;
         }
+        
         /* アルバム */
         #album-view {
             overflow-y: auto;
@@ -241,7 +261,7 @@
         
         <!-- タブ1: スキャナー / WEB表示 -->
         <div id="tab-scanner" class="tab-content active">
-            <div id="scanner-view" style="width:100%; height:100%;">
+            <div id="scanner-view">
                 <!-- カメラ未起動時のプレースホルダー -->
                 <div id="camera-placeholder" class="camera-placeholder">
                     <span style="font-size: 48px;">📷</span>
@@ -250,7 +270,6 @@
                 <video id="video-preview" autoplay playsinline muted></video>
             </div>
             <div id="web-view-container" style="display: none;">
-                <!-- ここをタップしても何も起きない（ドラッグ機能削除） -->
                 <iframe id="web-frame" src=""></iframe>
             </div>
         </div>
@@ -299,7 +318,6 @@
 
         window.onload = () => { 
             loadSavedImages();
-            // 自動でのカメラ起動（startCamera()）は行わない
         };
 
         // --- 1. カメラ & QRスキャン処理 ---
@@ -314,7 +332,6 @@
                 video.setAttribute("playsinline", true);
                 video.setAttribute("webkit-playsinline", true);
                 
-                // カメラが正常に準備できたらプレースホルダーを隠してビデオを表示
                 video.style.display = 'block';
                 cameraPlaceholder.style.display = 'none';
 
@@ -334,7 +351,6 @@
             streamRef = null;
         }
 
-        // スキャナー画面の表示状態を初期（ボタン待ち）に戻す
         function resetScannerUI() {
             video.style.display = 'none';
             cameraPlaceholder.style.display = 'flex';
@@ -509,7 +525,6 @@
                 document.getElementById('tab-scanner').classList.add('active');
                 document.querySelectorAll('.tab-item')[0].classList.add('active');
                 
-                // タブ切り替え時は初期状態（ボタン待ち画面）を表示する
                 webViewContainer.style.display = 'none';
                 scannerView.style.display = 'block';
                 resetScannerUI();
