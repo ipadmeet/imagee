@@ -35,7 +35,6 @@
             height: 100%;
         }
         
-        /* 【変更】タブコンテンツの配置をFlexboxにして、高さを100%に固定 */
         .tab-content {
             display: none;
             width: 100%;
@@ -45,7 +44,6 @@
             left: 0;
             overflow: hidden;
         }
-        /* アルバムタブがアクティブな時はFlexレイアウトを適用 */
         #tab-album.active {
             display: flex;
             flex-direction: column;
@@ -148,28 +146,28 @@
             display: block;
         }
         
-        /* 【重要】アルバム全体のレイアウト変更 */
+        /* アルバム全体のレイアウト */
         #album-view {
             display: flex;
             flex-direction: column;
             height: 100%;
             width: 100%;
             box-sizing: border-box;
-            overflow: hidden; /* 親はスクロールさせない */
+            overflow: hidden;
         }
         .album-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             padding: 16px 16px 8px 16px;
-            flex-shrink: 0; /* ヘッダーは潰さない */
+            flex-shrink: 0;
         }
         
-        /* 【重要】グリッドを囲むスクロール専用のコンテナ */
+        /* グリッドを囲むスクロール専用のコンテナ */
         .grid-scroll-container {
             flex: 1;
-            overflow-y: auto; /* ここで縦スクロールを強制有効化 */
-            -webkit-overflow-scrolling: touch; /* iOSのスムーズスクロール */
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
             padding: 8px 16px 24px 16px;
         }
 
@@ -284,7 +282,6 @@
                         📋 画像をペースト
                     </button>
                 </div>
-                <!-- 【変更】グリッド部分をスクロール専用コンテナで包む -->
                 <div class="grid-scroll-container">
                     <div class="grid" id="photo-grid"></div>
                 </div>
@@ -318,7 +315,7 @@
 
         let streamRef = null;
         let scanAnimationId = null;
-        let lastPastedData = null;
+        let lastPastedData = null; // 連続ペーストを防止するためのキャッシュ型変数
 
         window.onload = () => { 
             loadSavedImages();
@@ -327,6 +324,8 @@
         // --- 1. カメラ & QRスキャン処理 ---
         async function startCamera() {
             stopCamera();
+            // 【変更】カメラを新しく起動・リセットする際にキャッシュをクリア
+            lastPastedData = null; 
             try {
                 streamRef = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 }, focusMode: "continuous" },
@@ -390,6 +389,8 @@
             scannerView.style.display = 'none';
             webViewContainer.style.display = 'block';
             webFrame.src = url;
+            // 【変更】新しいフォーム画面を開いた際にも過去のペースト履歴をリセット
+            lastPastedData = null;
         }
 
         // --- 2. アルバム保存・管理ロジック ---
@@ -457,6 +458,8 @@
                 localStorage.setItem('captured_images_v2', JSON.stringify(images));
                 element.remove();
                 showToast("画像を削除しました");
+                // 削除された画像が直前のペーストデータだった場合に備えてクリア
+                lastPastedData = null; 
             }
         }
 
@@ -500,8 +503,9 @@
                             reader.onloadend = () => {
                                 const currentData = reader.result;
 
+                                // 連打による重複のみを防ぐ
                                 if (lastPastedData === currentData) {
-                                    showToast("⚠️ このコピーは既に一度ペーストされています。");
+                                    showToast("⚠️ このコピーは直前にペースト済みです。連続保存を防ぎます。");
                                     return;
                                 }
 
@@ -536,6 +540,10 @@
                 document.getElementById('tab-album').classList.add('active');
                 document.querySelectorAll('.tab-item')[1].classList.add('active');
                 stopCamera();
+                
+                // 【重要】ScannerタブからAlbumタブに戻ってきたタイミングでキャッシュをリセット。
+                // これにより、同じフォーム画像を再撮影・再コピーした場合でも確実にペーストが可能になります。
+                lastPastedData = null;
             }
         }
 
