@@ -225,7 +225,7 @@
             justify-content: center;
             align-items: center;
             opacity: 0;
-            transition: opacity 0.2s ease-in-out;
+transition: opacity 0.2s ease-in-out;
         }
         .lightbox.show {
             display: flex;
@@ -315,7 +315,10 @@
 
         let streamRef = null;
         let scanAnimationId = null;
-        let lastPastedData = null; // 連続ペーストを防止するためのキャッシュ型変数
+        
+        // 【重要】クリップボード制御用の変数
+        let lastPastedData = null;       // 直前に処理した画像データ
+        let isPastedCurrentCopy = false; // 現在クリップボードにある画像がペースト済みかどうかのフラグ
 
         window.onload = () => { 
             loadSavedImages();
@@ -324,8 +327,6 @@
         // --- 1. カメラ & QRスキャン処理 ---
         async function startCamera() {
             stopCamera();
-            // 【変更】カメラを新しく起動・リセットする際にキャッシュをクリア
-            lastPastedData = null; 
             try {
                 streamRef = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 }, focusMode: "continuous" },
@@ -389,8 +390,6 @@
             scannerView.style.display = 'none';
             webViewContainer.style.display = 'block';
             webFrame.src = url;
-            // 【変更】新しいフォーム画面を開いた際にも過去のペースト履歴をリセット
-            lastPastedData = null;
         }
 
         // --- 2. アルバム保存・管理ロジック ---
@@ -458,8 +457,6 @@
                 localStorage.setItem('captured_images_v2', JSON.stringify(images));
                 element.remove();
                 showToast("画像を削除しました");
-                // 削除された画像が直前のペーストデータだった場合に備えてクリア
-                lastPastedData = null; 
             }
         }
 
@@ -503,15 +500,24 @@
                             reader.onloadend = () => {
                                 const currentData = reader.result;
 
-                                // 連打による重複のみを防ぐ
-                                if (lastPastedData === currentData) {
-                                    showToast("⚠️ このコピーは直前にペースト済みです。連続保存を防ぎます。");
+                                // 【重要】前回の画像と異なるデータが入ってきた場合は、新しいコピーとみなしてリセット
+                                if (lastPastedData !== currentData) {
+                                    isPastedCurrentCopy = false;
+                                }
+
+                                // 【重要】現在のコピーがすでにペースト済みであれば処理を完全に弾く
+                                if (isPastedCurrentCopy) {
+                                    showToast("⚠️ このコピーはすでに1回ペーストされています。新しくコピーしてください。");
                                     return;
                                 }
 
+                                // アルバムに追加
                                 addImageToGrid(currentData);
                                 showToast("📸 アルバムに保存しました！");
+                                
+                                // フラグの状態を更新（1つのコピーに対して1回のみにする）
                                 lastPastedData = currentData; 
+                                isPastedCurrentCopy = true; 
                             };
                             reader.readAsDataURL(blob);
                             return;
@@ -520,7 +526,7 @@
                 }
                 showToast("📋 クリップボードに画像がありません。");
             } catch (err) {
-                showToast("貼り付け処理に失敗しました。もう一度お試しください。");
+                showToast("貼り付け処理に失敗しました。");
             }
         }
 
@@ -540,10 +546,6 @@
                 document.getElementById('tab-album').classList.add('active');
                 document.querySelectorAll('.tab-item')[1].classList.add('active');
                 stopCamera();
-                
-                // 【重要】ScannerタブからAlbumタブに戻ってきたタイミングでキャッシュをリセット。
-                // これにより、同じフォーム画像を再撮影・再コピーした場合でも確実にペーストが可能になります。
-                lastPastedData = null;
             }
         }
 
